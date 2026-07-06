@@ -1,0 +1,68 @@
+@import 'tailwindcss';
+
+/* ============================================================
+   RADAR DELTHA — Sistema de design (linguagem visual única)
+   Paleta da marca Deltha (extraída da logo): azul-marinho profundo
+   (#05113D) como cor estrutural e vermelho carmim (#C8102E) como accent.
+   A semântica verde/amarelo/vermelho é mantida (requisito do produto);
+   o "vermelho crítico" foi clareado para não se confundir com o carmim
+   da marca usado nos botões/itens ativos.
+   ============================================================ */
+
+@theme {
+  --color-bg: #070b1c; /* fundo — navy quase preto (base da marca) */
+  --color-panel: #0d1430; /* cards — navy escuro */
+  --color-panel2: #141d3c; /* superfícies elevadas (modais, hover) */
+  --color-line: #243054; /* borda sutil 1px (tom presente na própria logo) */
+  --color-ink: #e8ebf5; /* texto principal */
+  --color-mut: #8b93ac; /* texto secundário */
+  --color-accent: #d81f45; /* carmim da marca — usado com moderação */
+  --color-pos: #22c55e; /* positivo / dentro da meta */
+  --color-warn: #f5a524; /* atenção */
+  --color-neg: #ff6b6b; /* crítico (mais claro que o carmim da marca) */
+  --color-blue: #5b8def; /* série de dados neutra (gráficos) */
+  --color-silver: #c3cad9; /* série de dados neutra clara */
+
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Números tabulares em KPIs e tabelas */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbar discreta, coerente com o dark corporativo */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3040 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2a3040;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Inputs nativos de data no dark mode */
+input[type='date'],
+input[type='month'] {
+  color-scheme: dark;
+}

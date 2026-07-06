@@ -1,0 +1,41 @@
+{
+  "name": "deltha-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API do Dashboard Empresarial Deltha (Express + Prisma + SQLite)",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "import:nfe": "tsx scripts/import-nfe.ts",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:demo": "tsx prisma/seed-demo.ts",
+    "db:clean": "tsx prisma/clean-data.ts",
+    "db:reset": "prisma migrate reset --force",
+    "db:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.3.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "fast-xml-parser": "^4.5.0",
+    "multer": "^2.0.1",
+    "pdfkit": "^0.15.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.10.0",
+    "@types/pdfkit": "^0.13.8",
+    "prisma": "^6.3.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

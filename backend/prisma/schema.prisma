@@ -1,0 +1,200 @@
+// ============================================================
+// Deltha Dashboard — Schema do banco de dados
+//
+// Banco atual: SQLite (arquivo local, zero instalação).
+// PORTABILIDADE PostgreSQL: trocar provider para "postgresql" e
+// apontar DATABASE_URL no .env (ex: postgresql://user:pass@localhost:5432/deltha).
+// O schema evita recursos não portáveis (enums nativos, etc.) de propósito:
+// campos de status usam String com valores documentados em src/lib/constants.ts.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id          String       @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  // CNPJ do destinatário — chave de upsert para clientes vindos de importação de NF-e.
+  cnpj        String?      @unique
+  createdAt   DateTime     @default(now()) @map("created_at")
+  receivables Receivable[]
+  sales       Sale[]
+
+  @@map("clients")
+}
+
+// Receitas / contas a receber. Também é o HISTÓRICO DE COBRANÇAS usado
+// pelo score de risco de inadimplência (client_id, due_date, paid_date, amount, status).
+model Receivable {
+  id          String    @id @default(cuid())
+  clientId    String?   @map("client_id")
+  client      Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  description String?
+  category    String    @default("Geral")
+  amount      Float
+  dueDate     DateTime  @map("due_date")
+  paidDate    DateTime? @map("paid_date")
+  // PENDENTE | PAGA | ATRASADA | CANCELADA  (ver src/lib/constants.ts)
+  status      String    @default("PENDENTE")
+  // MANUAL | NFE | DOMINIO — origem do lançamento (ver RECORD_SOURCES)
+  source      String    @default("MANUAL")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([dueDate])
+  @@index([clientId])
+  @@map("receivables")
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  category    String   @default("Geral")
+  // Classificação DRE: DEDUCAO | CUSTO | OPERACIONAL | DEPRECIACAO | FINANCEIRA | OUTRA
+  // Usada no waterfall (Receita Bruta → ... → Lucro Operacional) e no EBITDA.
+  kind        String   @default("OPERACIONAL")
+  description String?
+  amount      Float
+  date        DateTime
+  // MANUAL | NFE | DOMINIO — origem do lançamento (ver RECORD_SOURCES)
+  source      String   @default("MANUAL")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([date])
+  @@map("expenses")
+}
+
+model Product {
+  id        String   @id @default(cuid())
+  name      String
+  costPrice Float    @map("cost_price")
+  salePrice Float    @map("sale_price")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  sales     Sale[]
+
+  @@map("products")
+}
+
+model Seller {
+  id    String @id @default(cuid())
+  name  String
+  sales Sale[]
+
+  @@map("sellers")
+}
+
+model Sale {
+  id        String   @id @default(cuid())
+  productId String?  @map("product_id")
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  clientId  String?  @map("client_id")
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  sellerId  String?  @map("seller_id")
+  seller    Seller?  @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  quantity  Int      @default(1)
+  amount    Float
+  date      DateTime
+  // MANUAL | NFE | DOMINIO — origem do lançamento (ver RECORD_SOURCES)
+  source    String   @default("MANUAL")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([date])
+  @@map("sales")
+}
+
+model Team {
+  id    String @id @default(cuid())
+  name  String
+  tasks Task[]
+
+  @@map("teams")
+}
+
+model Task {
+  id            String    @id @default(cuid())
+  teamId        String?   @map("team_id")
+  team          Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  title         String
+  dueDate       DateTime  @map("due_date")
+  deliveredDate DateTime? @map("delivered_date")
+  // EM_ANDAMENTO | CONCLUIDA | CANCELADA
+  status        String    @default("EM_ANDAMENTO")
+  // Motivo do atraso (gargalo): preenchido quando entregue após o prazo ou vencida
+  delayReason   String?   @map("delay_reason")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([dueDate])
+  @@map("tasks")
+}
+
+// Regras de alerta configuráveis via UI (Configurações → Alertas).
+// direction BELOW: dispara quando o valor fica ABAIXO do limiar (ex: margem).
+// direction ABOVE: dispara quando o valor fica ACIMA do limiar (ex: despesas).
+model AlertThreshold {
+  id              String @id @default(cuid())
+  metricKey       String @unique @map("metric_key")
+  label           String
+  yellowThreshold Float  @map("yellow_threshold")
+  redThreshold    Float  @map("red_threshold")
+  direction       String @default("BELOW")
+  unit            String @default("%")
+  // Em quais painéis o alerta aparece: executivo | financeiro | ambos
+  scope           String @default("ambos")
+
+  @@map("alert_thresholds")
+}
+
+// Metas configuráveis via UI (Configurações → Metas).
+// period: "YYYY-MM" para meta de um mês específico, ou "default" (vale para todos os meses).
+model Goal {
+  id        String @id @default(cuid())
+  metricKey String @map("metric_key")
+  period    String @default("default")
+  value     Float
+
+  @@unique([metricKey, period])
+  @@map("goals")
+}
+
+// Tokens OAuth de integrações externas (Google Calendar).
+model IntegrationToken {
+  id           String    @id @default(cuid())
+  provider     String    @unique
+  accessToken  String    @map("access_token")
+  refreshToken String?   @map("refresh_token")
+  expiryDate   DateTime? @map("expiry_date")
+  scope        String?
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("integration_tokens")
+}
+
+// Rastreia documentos externos já importados (idempotência/deduplicação).
+// Cobre tanto NF-e (source=NFE, externalId=chave de acesso de 44 dígitos)
+// quanto planilhas do Domínio (source=DOMINIO_EXPENSE, externalId=hash de
+// data+valor+descrição por LINHA da planilha — ver services/expenseImport.ts).
+model ImportedDocument {
+  id           String   @id @default(cuid())
+  // NFE | DOMINIO_EXPENSE (futuros: NFCE, NFSE, CTE)
+  source       String
+  // chNFe (NF-e) ou hash SHA-256 da linha (planilha Domínio)
+  externalId   String
+  // caminho do arquivo de origem (auditoria/depuração)
+  filePath     String?
+  status       String   @default("IMPORTADO") // IMPORTADO | ERRO
+  errorMessage String?
+  // ids gerados por este import (json simples, ex: {"saleIds":[...],"receivableIds":[...]})
+  createdIds   String?
+  importedAt   DateTime @default(now()) @map("imported_at")
+
+  @@unique([source, externalId])
+  @@index([source])
+  @@map("imported_documents")
+}
