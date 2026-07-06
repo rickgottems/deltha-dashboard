@@ -1,8 +1,13 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { HttpError } from './lib/http.js';
 import { executivoRouter } from './routes/executivo.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { financeiroRouter } from './routes/financeiro.js';
 import { receitasRouter } from './routes/receitas.js';
 import { despesasRouter } from './routes/despesas.js';
@@ -34,7 +39,14 @@ app.use('/api/relatorios', relatoriosRouter);
 app.use('/api/config', configRouter);
 app.use('/api/importacoes', importacoesRouter);
 
-app.use((_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));
+// Servir arquivos estáticos do frontend buildado
+const frontendPath = path.join(__dirname, '../../frontend/dist');
+app.use(express.static(frontendPath));
+
+// SPA fallback: redireciona URLs não-API para index.html
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
 
 app.use(
   (err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
