@@ -25,4 +25,6 @@ ENV NODE_ENV=production
 ENV PORT=3001
 
 WORKDIR /app/backend
-CMD ["npm", "start"]
+# Cria/atualiza as tabelas do SQLite antes de subir o servidor (o container
+# não tem banco nenhum na primeira execução — migrate deploy cria do zero).
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
