@@ -18,7 +18,7 @@
 
 import { prisma } from '../db.js';
 import { GOAL_DEFAULT_PERIOD } from '../lib/constants.js';
-import { lastMonths, monthRange, prevYm, ymLabel, type Range } from '../lib/period.js';
+import { lastMonths, monthRange, prevYm, spanLabel, spanRange, ymLabel, type Range } from '../lib/period.js';
 
 export interface MonthFinance {
   ym: string;
@@ -41,18 +41,38 @@ export interface MonthFinance {
   recebimentos: number;
 }
 
-async function sumReceivablesDue(r: Range): Promise<number> {
+/**
+ * Opções de recorte por Cliente. IMPORTANTE: `Expense` não tem `clientId`
+ * no schema (despesas não são atribuíveis a um cliente específico) — então
+ * um filtro de cliente só consegue recortar a RECEITA (receitaBruta,
+ * recebimentos, receitaLiquida). Custos/Despesas/EBITDA/Lucro continuam
+ * sendo os da empresa inteira. `FinancePeriod.clientFiltered` sinaliza isso
+ * para a UI exibir o aviso correspondente.
+ */
+export interface FinanceFilterOpts {
+  clientId?: string;
+}
+
+async function sumReceivablesDue(r: Range, opts: FinanceFilterOpts = {}): Promise<number> {
   const agg = await prisma.receivable.aggregate({
     _sum: { amount: true },
-    where: { dueDate: { gte: r.start, lt: r.end }, status: { not: 'CANCELADA' } },
+    where: {
+      dueDate: { gte: r.start, lt: r.end },
+      status: { not: 'CANCELADA' },
+      ...(opts.clientId ? { clientId: opts.clientId } : {}),
+    },
   });
   return agg._sum.amount ?? 0;
 }
 
-async function sumReceivablesPaid(r: Range): Promise<number> {
+async function sumReceivablesPaid(r: Range, opts: FinanceFilterOpts = {}): Promise<number> {
   const agg = await prisma.receivable.aggregate({
     _sum: { amount: true },
-    where: { paidDate: { gte: r.start, lt: r.end }, status: 'PAGA' },
+    where: {
+      paidDate: { gte: r.start, lt: r.end },
+      status: 'PAGA',
+      ...(opts.clientId ? { clientId: opts.clientId } : {}),
+    },
   });
   return agg._sum.amount ?? 0;
 }
@@ -68,12 +88,19 @@ async function expensesByKind(r: Range): Promise<Record<string, number>> {
   return out;
 }
 
-export async function monthFinance(ym: string): Promise<MonthFinance> {
-  const r = monthRange(ym);
+export interface FinancePeriod extends MonthFinance {
+  fromYm: string;
+  toYm: string;
+  clientFiltered: boolean;
+}
+
+/** Núcleo do cálculo: agrega um Range arbitrário (1 mês ou vários), com filtro opcional de cliente. */
+export async function periodFinance(fromYm: string, toYm: string, opts: FinanceFilterOpts = {}): Promise<FinancePeriod> {
+  const r = spanRange(fromYm, toYm);
   const [receitaBruta, kinds, recebimentos] = await Promise.all([
-    sumReceivablesDue(r),
+    sumReceivablesDue(r, opts),
     expensesByKind(r),
-    sumReceivablesPaid(r),
+    sumReceivablesPaid(r, opts),
   ]);
 
   const deducoes = kinds['DEDUCAO'] ?? 0;
@@ -89,8 +116,11 @@ export async function monthFinance(ym: string): Promise<MonthFinance> {
   const despesasTotais = Object.values(kinds).reduce((a, b) => a + b, 0);
 
   return {
-    ym,
-    label: ymLabel(ym),
+    ym: fromYm === toYm ? fromYm : `${fromYm}_${toYm}`,
+    label: spanLabel(fromYm, toYm),
+    fromYm,
+    toYm,
+    clientFiltered: Boolean(opts.clientId),
     receitaBruta,
     deducoes,
     receitaLiquida,
@@ -110,8 +140,12 @@ export async function monthFinance(ym: string): Promise<MonthFinance> {
   };
 }
 
-export async function financeSeries(n: number, refYm: string): Promise<MonthFinance[]> {
-  return Promise.all(lastMonths(n, refYm).map((ym) => monthFinance(ym)));
+export async function monthFinance(ym: string): Promise<MonthFinance> {
+  return periodFinance(ym, ym);
+}
+
+export async function financeSeries(n: number, refYm: string, opts: FinanceFilterOpts = {}): Promise<MonthFinance[]> {
+  return Promise.all(lastMonths(n, refYm).map((ym) => periodFinance(ym, ym, opts)));
 }
 
 /** Variação percentual (null quando base é 0 — evita divisões absurdas). */
@@ -138,6 +172,11 @@ export async function contributionMarginAvg(): Promise<{ avg: number | null; cou
 
 export async function newClientsIn(ym: string): Promise<number> {
   const r = monthRange(ym);
+  return prisma.client.count({ where: { createdAt: { gte: r.start, lt: r.end } } });
+}
+
+export async function newClientsInRange(fromYm: string, toYm: string): Promise<number> {
+  const r = spanRange(fromYm, toYm);
   return prisma.client.count({ where: { createdAt: { gte: r.start, lt: r.end } } });
 }
 
@@ -193,9 +232,8 @@ export interface WaterfallStep {
   kind: 'total' | 'increase' | 'decrease';
 }
 
-/** Waterfall "Resultado do período" (Executivo). */
-export async function waterfall(ym: string): Promise<WaterfallStep[]> {
-  const f = await monthFinance(ym);
+/** Waterfall "Resultado do período" (Executivo) a partir de um MonthFinance já calculado. */
+export function waterfallFromFinance(f: MonthFinance): WaterfallStep[] {
   return [
     { name: 'Receita Bruta', value: f.receitaBruta, kind: 'total' },
     { name: 'Deduções', value: -f.deducoes, kind: 'decrease' },
@@ -205,6 +243,11 @@ export async function waterfall(ym: string): Promise<WaterfallStep[]> {
     { name: 'Outras Rec/Desp', value: -f.outras, kind: 'decrease' },
     { name: 'Lucro Operacional', value: f.lucroOperacional, kind: 'total' },
   ];
+}
+
+/** Waterfall "Resultado do período" (Executivo). */
+export async function waterfall(ym: string): Promise<WaterfallStep[]> {
+  return waterfallFromFinance(await monthFinance(ym));
 }
 
 /**

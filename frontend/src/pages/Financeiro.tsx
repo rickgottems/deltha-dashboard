@@ -1,16 +1,16 @@
-import { useState } from 'react';
 import { BadgeDollarSign, Percent, PiggyBank, Receipt } from 'lucide-react';
 import { useFetch } from '../hooks/useFetch';
-import { currentYm, fmtBRLCompact, fmtPct } from '../lib/format';
+import { fmtBRLCompact, fmtPct } from '../lib/format';
 import { C } from '../lib/palette';
 import { Card, ErrorState, PageHeader, SectionTitle, Spinner } from '../components/ui';
 import { KpiCard } from '../components/KpiCard';
-import { MonthPicker } from '../components/pickers';
+import { FinanceFilterBar, useFinanceFilter } from '../components/pickers';
 import { CashflowBars, ChartLegend, TimeSeriesLine, type LineSeriesDef } from '../components/charts';
 import { AlertsPanel, type AlertItem } from '../components/AlertsPanel';
 
 interface FinanceiroData {
   month: string;
+  clientFiltered: boolean;
   kpis: {
     receita: { value: number; varPct: number | null };
     despesas: { value: number; varPct: number | null };
@@ -32,15 +32,15 @@ const RXD_SERIES: LineSeriesDef[] = [
 const LUCRO_SERIES: LineSeriesDef[] = [{ key: 'lucro', name: 'Lucro Líquido', color: C.pos }];
 
 export function Financeiro() {
-  const [ym, setYm] = useState(currentYm());
-  const { data, loading, error, reload } = useFetch<FinanceiroData>(`/api/financeiro?month=${ym}`);
+  const filter = useFinanceFilter();
+  const { data, loading, error, reload } = useFetch<FinanceiroData>(`/api/financeiro?${filter.query}`);
 
   return (
     <>
       <PageHeader
         title="Dashboard Financeiro"
         subtitle="Receita, despesa, lucro e caixa"
-        right={<MonthPicker ym={ym} onChange={setYm} />}
+        right={<FinanceFilterBar {...filter} />}
       />
 
       {loading && <Spinner />}
@@ -48,6 +48,12 @@ export function Financeiro() {
 
       {data && !loading && (
         <div className="space-y-4">
+          {data.clientFiltered && (
+            <div className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
+              Filtrado por cliente: apenas a <strong>Receita</strong> reflete o cliente selecionado. Despesas,
+              Lucro e Margem continuam sendo os da empresa inteira (despesas não têm cliente associado).
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
               title="Receita"

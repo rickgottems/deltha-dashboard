@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { addMonths, currentYm, fmtYm, todayISO } from '../lib/format';
+import { useFetch } from '../hooks/useFetch';
 
 /* ---------- Seletor de mês (Executivo, Financeiro, Vendas, Operações) ---------- */
 
@@ -106,6 +107,72 @@ export function PeriodPicker({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Filtro combinável Ano/Mês (range) + Cliente (Executivo, Financeiro) ---------- */
+
+interface CatalogClient {
+  id: string;
+  name: string;
+}
+
+interface CatalogResponse {
+  clients: CatalogClient[];
+}
+
+export function useFinanceFilter() {
+  const [fromYm, setFromYm] = useState(currentYm());
+  const [toYm, setToYm] = useState(currentYm());
+  const [clientId, setClientId] = useState('');
+
+  const query = useMemo(() => {
+    const p = new URLSearchParams({ from: fromYm, to: toYm });
+    if (clientId) p.set('clientId', clientId);
+    return p.toString();
+  }, [fromYm, toYm, clientId]);
+
+  return { fromYm, setFromYm, toYm, setToYm, clientId, setClientId, query };
+}
+
+/**
+ * Filtros de Ano/Mês (range) + Cliente. Cliente recorta só a Receita — ver
+ * nota em backend/src/services/finance.ts sobre por que Despesas não são
+ * filtráveis por cliente (não têm essa dimensão no schema).
+ */
+export function FinanceFilterBar(f: ReturnType<typeof useFinanceFilter>) {
+  const { data: catalogos } = useFetch<CatalogResponse>('/api/config/catalogos');
+
+  const handleFrom = (ym: string) => {
+    f.setFromYm(ym);
+    if (ym > f.toYm) f.setToYm(ym);
+  };
+  const handleTo = (ym: string) => {
+    f.setToYm(ym);
+    if (ym < f.fromYm) f.setFromYm(ym);
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1.5 text-xs text-mut">
+        <span className="hidden sm:inline">de</span>
+        <MonthPicker ym={f.fromYm} onChange={handleFrom} />
+        <span className="hidden sm:inline">até</span>
+        <MonthPicker ym={f.toYm} onChange={handleTo} />
+      </div>
+      <select
+        value={f.clientId}
+        onChange={(e) => f.setClientId(e.target.value)}
+        className="rounded-lg border border-line bg-panel px-2.5 py-1.5 text-xs text-ink outline-none focus:border-accent/60"
+      >
+        <option value="">Todos os clientes</option>
+        {(catalogos?.clients ?? []).map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

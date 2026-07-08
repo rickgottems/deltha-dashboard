@@ -1,22 +1,52 @@
 import { Router } from 'express';
 import { ah } from '../lib/http.js';
-import { currentYm, isValidYm } from '../lib/period.js';
-import { financeSeries, pctChange } from '../services/finance.js';
+import { currentYm, isValidYm, prevPeriod } from '../lib/period.js';
+import { financeSeries, pctChange, periodFinance } from '../services/finance.js';
 import { evaluateAlerts } from '../services/alerts.js';
 
 export const financeiroRouter = Router();
 
-/** GET /api/financeiro?month=YYYY-MM — KPIs, séries e alertas financeiros. */
+/**
+ * GET /api/financeiro?from=YYYY-MM&to=YYYY-MM&clientId=xxx
+ * (aceita também ?month=YYYY-MM, forma antiga, equivalente a from=to=month)
+ * KPIs, séries e alertas financeiros. clientId recorta apenas a Receita —
+ * Expense não tem clientId no schema, então despesas/lucro/margens
+ * continuam sendo os da empresa inteira (ver nota em services/finance.ts).
+ */
 financeiroRouter.get(
   '/',
   ah(async (req, res) => {
-    const ym = isValidYm(String(req.query.month ?? '')) ? String(req.query.month) : currentYm();
-    const [series12, alerts] = await Promise.all([financeSeries(12, ym), evaluateAlerts(ym, 'financeiro')]);
-    const atual = series12[series12.length - 1];
-    const anterior = series12[series12.length - 2];
+    const fromQ = String(req.query.from ?? '');
+    const toQ = String(req.query.to ?? '');
+    const monthQ = String(req.query.month ?? '');
+    const clientId = req.query.clientId ? String(req.query.clientId) : undefined;
+
+    let fromYm: string;
+    let toYm: string;
+    if (isValidYm(fromQ) && isValidYm(toQ)) {
+      fromYm = fromQ <= toQ ? fromQ : toQ;
+      toYm = fromQ <= toQ ? toQ : fromQ;
+    } else if (isValidYm(monthQ)) {
+      fromYm = toYm = monthQ;
+    } else {
+      fromYm = toYm = currentYm();
+    }
+
+    const opts = clientId ? { clientId } : {};
+    const prev = prevPeriod(fromYm, toYm);
+
+    const [atual, anterior, series12, alerts] = await Promise.all([
+      periodFinance(fromYm, toYm, opts),
+      periodFinance(prev.fromYm, prev.toYm, opts),
+      financeSeries(12, toYm, opts),
+      evaluateAlerts(toYm, 'financeiro'),
+    ]);
 
     res.json({
-      month: ym,
+      fromYm,
+      toYm,
+      month: toYm,
+      clientFiltered: atual.clientFiltered,
       kpis: {
         receita: { value: atual.receitaBruta, varPct: pctChange(atual.receitaBruta, anterior.receitaBruta) },
         despesas: { value: atual.despesasTotais, varPct: pctChange(atual.despesasTotais, anterior.despesasTotais) },

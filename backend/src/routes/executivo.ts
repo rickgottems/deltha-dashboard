@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import { ah } from '../lib/http.js';
-import { currentYm, isValidYm, lastMonths, ymLabel } from '../lib/period.js';
+import { currentYm, isValidYm, lastMonths, prevPeriod, ymLabel } from '../lib/period.js';
 import {
   contributionMarginAvg,
   financeSeries,
   goalFor,
   newClientsIn,
+  newClientsInRange,
   pctChange,
-  waterfall,
+  periodFinance,
+  waterfallFromFinance,
 } from '../services/finance.js';
 import { buildInsights } from '../services/insights.js';
 import { evaluateAlerts } from '../services/alerts.js';
@@ -15,38 +17,61 @@ import { evaluateAlerts } from '../services/alerts.js';
 export const executivoRouter = Router();
 
 /**
- * GET /api/executivo?month=YYYY-MM
+ * GET /api/executivo?from=YYYY-MM&to=YYYY-MM&clientId=xxx
+ * (aceita também ?month=YYYY-MM, forma antiga, equivalente a from=to=month)
  * Payload completo da tela Executivo: KPIs (com sparkline), série de
  * indicadores, waterfall, insights e alertas — tudo calculado do banco.
+ * clientId recorta apenas a Receita Total (ver nota em services/finance.ts);
+ * insights/alerts continuam ancorados no último mês do período (toYm).
  */
 executivoRouter.get(
   '/',
   ah(async (req, res) => {
-    const ym = isValidYm(String(req.query.month ?? '')) ? String(req.query.month) : currentYm();
+    const fromQ = String(req.query.from ?? '');
+    const toQ = String(req.query.to ?? '');
+    const monthQ = String(req.query.month ?? '');
+    const clientId = req.query.clientId ? String(req.query.clientId) : undefined;
 
-    const [series12, contrib, insights, alerts, wf, metaReceita] = await Promise.all([
-      financeSeries(12, ym),
+    let fromYm: string;
+    let toYm: string;
+    if (isValidYm(fromQ) && isValidYm(toQ)) {
+      fromYm = fromQ <= toQ ? fromQ : toQ;
+      toYm = fromQ <= toQ ? toQ : fromQ;
+    } else if (isValidYm(monthQ)) {
+      fromYm = toYm = monthQ;
+    } else {
+      fromYm = toYm = currentYm();
+    }
+
+    const opts = clientId ? { clientId } : {};
+    const prev = prevPeriod(fromYm, toYm);
+
+    const [atual, anterior, series12, contrib, insights, alerts, metaReceita] = await Promise.all([
+      periodFinance(fromYm, toYm, opts),
+      periodFinance(prev.fromYm, prev.toYm, opts),
+      financeSeries(12, toYm, opts),
       contributionMarginAvg(),
-      buildInsights(ym),
-      evaluateAlerts(ym, 'executivo'),
-      waterfall(ym),
-      goalFor('receita_total', ym),
+      buildInsights(toYm),
+      evaluateAlerts(toYm, 'executivo'),
+      goalFor('receita_total', toYm),
     ]);
 
-    const atual = series12[series12.length - 1];
-    const anterior = series12[series12.length - 2];
     const spark = (pick: (f: (typeof series12)[number]) => number) =>
       series12.slice(-6).map((f) => ({ label: f.label, value: pick(f) }));
 
-    // Novos clientes: mês atual, anterior e sparkline de 6 meses
-    const months6 = lastMonths(6, ym);
+    // Novos clientes: período atual, anterior (mesma duração) e sparkline de 6 meses.
+    // Não é afetado por clientId (não faz sentido contar "novos clientes" de 1 cliente).
+    const months6 = lastMonths(6, toYm);
     const novosSeries = await Promise.all(months6.map((m) => newClientsIn(m)));
-    const novosAtual = novosSeries[novosSeries.length - 1];
-    const novosAnterior = await newClientsIn(lastMonths(2, ym)[0]);
-    const metaNovos = await goalFor('novos_clientes', ym);
+    const novosAtual = await newClientsInRange(fromYm, toYm);
+    const novosAnterior = await newClientsInRange(prev.fromYm, prev.toYm);
+    const metaNovos = await goalFor('novos_clientes', toYm);
 
     res.json({
-      month: ym,
+      fromYm,
+      toYm,
+      month: toYm,
+      clientFiltered: atual.clientFiltered,
       kpis: {
         receitaTotal: {
           value: atual.receitaBruta,
@@ -74,7 +99,7 @@ executivoRouter.get(
           value: contrib.avg,
           produtos: contrib.count,
         },
-        // KPI 5 escolhido: NOVOS CLIENTES no mês (ticket médio ficou na aba
+        // KPI 5 escolhido: NOVOS CLIENTES no período (ticket médio ficou na aba
         // Vendas; exibi-lo aqui é variação futura)
         novosClientes: {
           value: novosAtual,
@@ -90,7 +115,7 @@ executivoRouter.get(
         ebitda: f.ebitda,
         margem: f.margemLiquida,
       })),
-      waterfall: wf,
+      waterfall: waterfallFromFinance(atual),
       insights,
       alerts,
       hasData: series12.some((f) => f.receitaBruta > 0 || f.despesasTotais > 0),

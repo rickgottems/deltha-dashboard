@@ -66,3 +66,28 @@ export function rangeFromQuery(from?: string, to?: string): Range {
 export function ymOf(date: Date): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
+
+/** Nº de meses entre fromYm e toYm, inclusive (ex: "2026-05".."2026-07" → 3). */
+export function monthsBetween(fromYm: string, toYm: string): number {
+  const [fy, fm] = fromYm.split('-').map(Number);
+  const [ty, tm] = toYm.split('-').map(Number);
+  return (ty - fy) * 12 + (tm - fm) + 1;
+}
+
+/** Range cobrindo do início de fromYm ao fim de toYm (inclusive). */
+export function spanRange(fromYm: string, toYm: string): Range {
+  return { start: monthRange(fromYm).start, end: monthRange(toYm).end };
+}
+
+/** "2026-07" → "jul/26" | "2026-05".."2026-07" → "mai/26 – jul/26" */
+export function spanLabel(fromYm: string, toYm: string): string {
+  return fromYm === toYm ? ymLabel(fromYm) : `${ymLabel(fromYm)} – ${ymLabel(toYm)}`;
+}
+
+/** Período anterior de mesma duração, terminando logo antes de fromYm. */
+export function prevPeriod(fromYm: string, toYm: string): { fromYm: string; toYm: string } {
+  const n = monthsBetween(fromYm, toYm);
+  const newToYm = prevYm(fromYm);
+  const newFromYm = lastMonths(n, newToYm)[0];
+  return { fromYm: newFromYm, toYm: newToYm };
+}

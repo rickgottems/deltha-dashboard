@@ -1,12 +1,11 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BadgeDollarSign, Percent, PiggyBank, UserPlus, Wallet } from 'lucide-react';
 import { useFetch } from '../hooks/useFetch';
-import { currentYm, fmtBRLCompact, fmtNum, fmtPct, fmtYm } from '../lib/format';
+import { fmtBRLCompact, fmtNum, fmtPct, fmtYm } from '../lib/format';
 import { C } from '../lib/palette';
 import { Card, EmptyState, ErrorState, PageHeader, SectionTitle, Spinner } from '../components/ui';
 import { KpiCard } from '../components/KpiCard';
-import { MonthPicker } from '../components/pickers';
+import { FinanceFilterBar, useFinanceFilter } from '../components/pickers';
 import { ChartLegend, TimeSeriesLine, WaterfallChart, type LineSeriesDef, type WaterfallStep } from '../components/charts';
 import { AlertsPanel, type AlertItem } from '../components/AlertsPanel';
 import { InsightsPanel, type InsightItem } from '../components/InsightsPanel';
@@ -18,6 +17,7 @@ interface Spark {
 
 interface ExecutivoData {
   month: string;
+  clientFiltered: boolean;
   kpis: {
     receitaTotal: { value: number; varPct: number | null; spark: Spark[]; meta: number | null; atingimentoPct: number | null };
     margemEbitda: { value: number | null; varPp: number | null; spark: Spark[] };
@@ -40,15 +40,15 @@ const INDICATOR_SERIES: LineSeriesDef[] = [
 ];
 
 export function Executivo() {
-  const [ym, setYm] = useState(currentYm());
-  const { data, loading, error, reload } = useFetch<ExecutivoData>(`/api/executivo?month=${ym}`);
+  const filter = useFinanceFilter();
+  const { data, loading, error, reload } = useFetch<ExecutivoData>(`/api/executivo?${filter.query}`);
 
   return (
     <>
       <PageHeader
         title="Dashboard Executivo"
         subtitle="Visão geral do negócio"
-        right={<MonthPicker ym={ym} onChange={setYm} />}
+        right={<FinanceFilterBar {...filter} />}
       />
 
       {loading && <Spinner />}
@@ -56,6 +56,13 @@ export function Executivo() {
 
       {data && !loading && (
         <div className="space-y-4">
+          {data.clientFiltered && (
+            <div className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
+              Filtrado por cliente: apenas a <strong>Receita Total</strong> reflete o cliente selecionado. Margem
+              EBITDA, Lucro Líquido e demais indicadores continuam sendo os da empresa inteira (despesas não têm
+              cliente associado).
+            </div>
+          )}
           {!data.hasData && (
             <Card hover={false}>
               <EmptyState
