@@ -21,6 +21,7 @@ import { calendarRouter } from './routes/calendar.js';
 import { relatoriosRouter } from './routes/relatorios.js';
 import { configRouter } from './routes/config.js';
 import { importacoesRouter } from './routes/importacoes.js';
+import { balancoRouter } from './routes/balanco.js';
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -47,6 +48,7 @@ app.use('/api/calendar', calendarRouter);
 app.use('/api/relatorios', relatoriosRouter);
 app.use('/api/config', configRouter);
 app.use('/api/importacoes', importacoesRouter);
+app.use('/api/balanco', balancoRouter);
 
 // Servir arquivos estáticos do frontend buildado
 const frontendPath = path.join(__dirname, '../../frontend/dist');

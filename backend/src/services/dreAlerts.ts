@@ -119,11 +119,13 @@ export async function evaluateDreAlerts(
     });
   }
 
-  // 7. Índice de Cobertura de Juros < 1,5  (Lucro Operacional ÷ despesas FINANCEIRA)
+  // 7. Índice de Cobertura de Juros < 1,5  (EBIT ÷ despesas FINANCEIRA)
   // PROXY: "juros" = Expense kind=FINANCEIRA (schema não separa juros de outras despesas
   // financeiras). Sem despesa financeira no período, a regra não se aplica (cobertura ilimitada).
+  // Usa EBIT (lucro ANTES do resultado financeiro), não Lucro Operacional (que já desconta
+  // financeiras) — dividir um valor pós-juros por juros de novo subestimaria a cobertura real.
   if (atual.financeiras > 0) {
-    const coberturaJuros = atual.lucroOperacional / atual.financeiras;
+    const coberturaJuros = atual.ebit / atual.financeiras;
     if (coberturaJuros < DRE_RULE_THRESHOLDS.coberturaJurosMin) {
       alerts.push({
         metricKey: 'dre_cobertura_juros',

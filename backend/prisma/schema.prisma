@@ -45,6 +45,8 @@ model Company {
   alertThresholds     AlertThreshold[]
   integrationTokens   IntegrationToken[]
   importedDocuments   ImportedDocument[]
+  balanceSheets       BalanceSheet[]
+  cashFlowStatements  CashFlowStatement[]
 
   @@map("companies")
 }
@@ -274,4 +276,48 @@ model ImportedDocument {
   @@unique([companyId, source, externalId])
   @@index([companyId, source])
   @@map("imported_documents")
+}
+
+// ============================================================
+// Balanço Patrimonial e DFC — LANÇAMENTO MANUAL, um snapshot por
+// empresa+mês (period = "YYYY-MM", fim do mês). Nada disso é derivável de
+// Receivable/Expense/Sale (não existe "estoque", "dívida" ou "patrimônio
+// líquido" em lugar nenhum do resto do schema) — por isso são tabelas
+// próprias, editadas em Configurações → Balanço/DFC. Alimentam
+// services/healthScore.ts (índices de liquidez/alavancagem/runway que a
+// DRE sozinha não calcula). Ver validação da equação contábil
+// (Ativo = Passivo + PL) em routes/config.ts ao salvar.
+// ============================================================
+model BalanceSheet {
+  id                 String   @id @default(cuid())
+  companyId          String   @map("company_id")
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  period             String   // "YYYY-MM"
+  currentAssets      Float    @map("current_assets")       // Ativo Circulante
+  inventory          Float    @map("inventory")             // Estoques (subconjunto do Ativo Circulante)
+  nonCurrentAssets   Float    @map("non_current_assets")    // Ativo Não Circulante
+  currentLiabilities Float    @map("current_liabilities")   // Passivo Circulante
+  shortTermDebt      Float    @map("short_term_debt")       // Dívida de Curto Prazo
+  longTermDebt       Float    @map("long_term_debt")        // Dívida de Longo Prazo
+  cashAndEquivalents Float    @map("cash_and_equivalents")  // Caixa e Equivalentes
+  equity             Float    // Patrimônio Líquido
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, period])
+  @@map("balance_sheets")
+}
+
+model CashFlowStatement {
+  id                    String   @id @default(cuid())
+  companyId             String   @map("company_id")
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  period                String   // "YYYY-MM"
+  operatingCashFlow     Float    @map("operating_cash_flow") // Fluxo de Caixa Operacional (FCO) do mês
+  capex                 Float    // Investimento em ativo imobilizado/intangível do mês
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, period])
+  @@map("cash_flow_statements")
 }

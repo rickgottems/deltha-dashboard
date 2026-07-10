@@ -11,6 +11,10 @@
 //   Lucro Operacional   = Receita Líquida − Custos − Despesas Operac. − Outras
 //   Lucro Líquido (v1)  = Lucro Operacional (IR/CSLL fora do escopo v1)
 //   EBITDA              = Lucro Operacional + DEPRECIACAO + FINANCEIRA (add-back)
+//   EBIT                = Lucro Operacional + FINANCEIRA (add-back só do resultado
+//                         financeiro — a depreciação continua deduzida, é despesa
+//                         "acima" do EBIT; usado para Cobertura de Juros = EBIT ÷
+//                         despesas financeiras em services/healthScore.ts)
 //   Margem EBITDA       = EBITDA ÷ Receita Líquida
 //   Margem Líquida      = Lucro Líquido ÷ Receita Líquida
 //   Fluxo de Caixa      = Σ receivables PAGAS (paidDate no mês) − Σ expenses (regime caixa)
@@ -38,6 +42,7 @@ export interface MonthFinance {
   lucroOperacional: number;
   lucroLiquido: number;
   ebitda: number;
+  ebit: number;
   margemEbitda: number | null;
   margemLiquida: number | null;
   fluxoCaixa: number;
@@ -120,6 +125,7 @@ export async function periodFinance(fromYm: string, toYm: string, opts: FinanceF
   const lucroOperacional = receitaLiquida - custos - operacional - outras;
   const lucroLiquido = lucroOperacional;
   const ebitda = lucroOperacional + depreciacao + financeiras;
+  const ebit = lucroOperacional + financeiras;
   const despesasTotais = Object.values(kinds).reduce((a, b) => a + b, 0);
 
   return {
@@ -140,6 +146,7 @@ export async function periodFinance(fromYm: string, toYm: string, opts: FinanceF
     lucroOperacional,
     lucroLiquido,
     ebitda,
+    ebit,
     margemEbitda: receitaLiquida > 0 ? (ebitda / receitaLiquida) * 100 : null,
     margemLiquida: receitaLiquida > 0 ? (lucroLiquido / receitaLiquida) * 100 : null,
     fluxoCaixa: recebimentos - despesasTotais,

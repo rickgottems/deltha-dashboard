@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
 import { fmtBRLCompact, fmtPct } from '../lib/format';
 import { C } from '../lib/palette';
-import { Card, ErrorState, PageHeader, SectionTitle, Spinner } from '../components/ui';
+import { Card, EmptyState, ErrorState, PageHeader, SectionTitle, Spinner } from '../components/ui';
 import { KpiCard } from '../components/KpiCard';
 import { FinanceFilterBar, useFinanceFilter } from '../components/pickers';
 import { CashflowBars, ChartLegend, TimeSeriesLine, type LineSeriesDef } from '../components/charts';
@@ -25,7 +25,28 @@ interface FinanceiroData {
   lucroSerie: { label: string; lucro: number }[];
   fluxoCaixa: { label: string; valor: number }[];
   alerts: AlertItem[];
+  saudeFinanceira: {
+    score: number;
+    metrics: {
+      margemEbit: number | null;
+      coberturaJuros: number | null;
+      liquidezSeca: number | null;
+      alavancagemDividaEbitda: number | null;
+      giroAtivos: number | null;
+      runwayMeses: number | null;
+      fcoVsLucro: number | null;
+    };
+    alerts: AlertItem[];
+    hasBalanceSheet: boolean;
+    hasCashFlow: boolean;
+  };
   hasData: boolean;
+}
+
+function scoreColor(score: number): string {
+  if (score >= 70) return C.pos;
+  if (score >= 40) return C.warn;
+  return C.neg;
 }
 
 const RXD_SERIES: LineSeriesDef[] = [
@@ -158,6 +179,91 @@ export function Financeiro() {
             </Card>
             <AlertsPanel alerts={data.alerts} />
           </div>
+
+          {/* ---------- Saúde Financeira (Balanço Patrimonial + DFC) ---------- */}
+          <Card hover={false}>
+            <SectionTitle
+              right={
+                <Link to="/configuracoes?tab=balanco" className="text-[11px] font-semibold text-accent hover:underline">
+                  Lançar Balanço/DFC
+                </Link>
+              }
+            >
+              Score de Saúde Financeira
+            </SectionTitle>
+
+            {!data.saudeFinanceira.hasBalanceSheet && !data.saudeFinanceira.hasCashFlow ? (
+              <EmptyState
+                title="Balanço Patrimonial e DFC ainda não lançados neste mês"
+                hint="Liquidez, Alavancagem, Giro de Ativos e Runway de Caixa dependem desses dois demonstrativos — não são deriváveis de Receitas/Despesas/Vendas. Lance em Configurações → Balanço & DFC."
+              />
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <div
+                    className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-4 text-2xl font-extrabold tnum"
+                    style={{ borderColor: scoreColor(data.saudeFinanceira.score), color: scoreColor(data.saudeFinanceira.score) }}
+                  >
+                    {Math.round(data.saudeFinanceira.score)}
+                  </div>
+                  <p className="text-xs leading-relaxed text-mut">
+                    Score de 0 a 100 — heurística determinística sobre DRE + Balanço + DFC (não é IA preditiva; regras e
+                    limiares documentados em <code className="text-[11px]">services/healthScore.ts</code>). Penaliza
+                    alertas críticos/atenção, bonifica margem EBITDA e liquidez saudáveis.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                  {[
+                    { label: 'Margem EBIT', value: data.saudeFinanceira.metrics.margemEbit, fmt: fmtPct },
+                    {
+                      label: 'Cobertura de Juros',
+                      value: data.saudeFinanceira.metrics.coberturaJuros,
+                      fmt: (v: number) => `${v.toFixed(2)}x`,
+                    },
+                    {
+                      label: 'Liquidez Seca',
+                      value: data.saudeFinanceira.metrics.liquidezSeca,
+                      fmt: (v: number) => v.toFixed(2),
+                    },
+                    {
+                      label: 'Alavancagem Dív/EBITDA',
+                      value: data.saudeFinanceira.metrics.alavancagemDividaEbitda,
+                      fmt: (v: number) => `${v.toFixed(2)}x`,
+                    },
+                    {
+                      label: 'Giro de Ativos',
+                      value: data.saudeFinanceira.metrics.giroAtivos,
+                      fmt: (v: number) => v.toFixed(2),
+                    },
+                  ].map((m) => (
+                    <div key={m.label} className="rounded-lg border border-line bg-panel2/40 px-3 py-2.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-mut">{m.label}</p>
+                      <p className="tnum mt-0.5 text-sm font-bold">{m.value !== null ? m.fmt(m.value) : '—'}</p>
+                    </div>
+                  ))}
+                  <div className="rounded-lg border border-line bg-panel2/40 px-3 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-mut">Runway de Caixa</p>
+                    <p className="tnum mt-0.5 text-sm font-bold">
+                      {!data.saudeFinanceira.hasBalanceSheet || !data.saudeFinanceira.hasCashFlow
+                        ? '—'
+                        : data.saudeFinanceira.metrics.runwayMeses === null
+                          ? 'Gerando caixa'
+                          : `${data.saudeFinanceira.metrics.runwayMeses.toFixed(1)} meses`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {data.saudeFinanceira.alerts.length > 0 && (
+            <AlertsPanel
+              alerts={data.saudeFinanceira.alerts}
+              title="Sinais de Alerta — Balanço & DFC"
+              configLink={false}
+            />
+          )}
         </div>
       )}
     </>

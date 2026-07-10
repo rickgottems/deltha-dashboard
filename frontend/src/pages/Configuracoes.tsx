@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { CalendarCheck2, CalendarX2, Pencil, Plus, Trash2, Users2 } from 'lucide-react';
 import { useFetch } from '../hooks/useFetch';
 import { useAuth } from '../context/AuthContext';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { fmtBRL, fmtPct } from '../lib/format';
 import { C } from '../lib/palette';
 import {
@@ -21,6 +21,7 @@ const TABS = [
   { key: 'produtos', label: 'Produtos' },
   { key: 'metas', label: 'Metas' },
   { key: 'alertas', label: 'Alertas' },
+  { key: 'balanco', label: 'Balanço & DFC' },
   { key: 'equipe', label: 'Equipe & Vendedores' },
   { key: 'integracoes', label: 'Integrações' },
   { key: 'usuarios', label: 'Usuários' },
@@ -51,6 +52,7 @@ export function Configuracoes() {
       {tab === 'produtos' && <ProdutosTab />}
       {tab === 'metas' && <MetasTab />}
       {tab === 'alertas' && <AlertasTab />}
+      {tab === 'balanco' && <BalancoTab />}
       {tab === 'equipe' && <EquipeTab />}
       {tab === 'integracoes' && <IntegracoesTab />}
       {tab === 'usuarios' && <UsuariosTab />}
@@ -317,6 +319,216 @@ function MetasTab() {
           </Table>
         )}
       </Card>
+    </div>
+  );
+}
+
+/* ---------------- Balanço Patrimonial & DFC (lançamento manual por mês) ---------------- */
+
+interface BalanceSheetForm {
+  currentAssets: string;
+  inventory: string;
+  nonCurrentAssets: string;
+  currentLiabilities: string;
+  shortTermDebt: string;
+  longTermDebt: string;
+  cashAndEquivalents: string;
+  equity: string;
+}
+
+const emptyBalanceSheet: BalanceSheetForm = {
+  currentAssets: '',
+  inventory: '',
+  nonCurrentAssets: '',
+  currentLiabilities: '',
+  shortTermDebt: '',
+  longTermDebt: '',
+  cashAndEquivalents: '',
+  equity: '',
+};
+
+interface CashFlowForm {
+  operatingCashFlow: string;
+  capex: string;
+}
+
+const emptyCashFlow: CashFlowForm = { operatingCashFlow: '', capex: '' };
+
+function currentPeriod(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function BalancoTab() {
+  const [period, setPeriod] = useState(currentPeriod());
+  const { data, loading, reload } = useFetch<{
+    balanceSheet: (BalanceSheetForm & { id: string }) | null;
+    cashFlow: (CashFlowForm & { id: string }) | null;
+  }>(`/api/balanco?period=${period}`);
+
+  const [bs, setBs] = useState<BalanceSheetForm>(emptyBalanceSheet);
+  const [cf, setCf] = useState<CashFlowForm>(emptyCashFlow);
+  const [bsError, setBsError] = useState<string | null>(null);
+  const [bsSaved, setBsSaved] = useState(false);
+  const [cfSaved, setCfSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setBs(
+      data?.balanceSheet
+        ? {
+            currentAssets: String(data.balanceSheet.currentAssets),
+            inventory: String(data.balanceSheet.inventory),
+            nonCurrentAssets: String(data.balanceSheet.nonCurrentAssets),
+            currentLiabilities: String(data.balanceSheet.currentLiabilities),
+            shortTermDebt: String(data.balanceSheet.shortTermDebt),
+            longTermDebt: String(data.balanceSheet.longTermDebt),
+            cashAndEquivalents: String(data.balanceSheet.cashAndEquivalents),
+            equity: String(data.balanceSheet.equity),
+          }
+        : emptyBalanceSheet
+    );
+    setCf(
+      data?.cashFlow
+        ? { operatingCashFlow: String(data.cashFlow.operatingCashFlow), capex: String(data.cashFlow.capex) }
+        : emptyCashFlow
+    );
+    setBsError(null);
+  }, [data]);
+
+  const n = (v: string) => Number(v || 0);
+  const ativoTotal = n(bs.currentAssets) + n(bs.nonCurrentAssets);
+  const passivoTotal = n(bs.currentLiabilities) + n(bs.longTermDebt);
+  const diferenca = ativoTotal - (passivoTotal + n(bs.equity));
+  const fecha = Math.abs(diferenca) < 0.01;
+
+  const salvarBalanco = async () => {
+    setSaving(true);
+    setBsError(null);
+    try {
+      await api.put('/api/balanco/balance-sheet', {
+        period,
+        currentAssets: n(bs.currentAssets),
+        inventory: n(bs.inventory),
+        nonCurrentAssets: n(bs.nonCurrentAssets),
+        currentLiabilities: n(bs.currentLiabilities),
+        shortTermDebt: n(bs.shortTermDebt),
+        longTermDebt: n(bs.longTermDebt),
+        cashAndEquivalents: n(bs.cashAndEquivalents),
+        equity: n(bs.equity),
+      });
+      setBsSaved(true);
+      setTimeout(() => setBsSaved(false), 1600);
+      reload();
+    } catch (err) {
+      setBsError(err instanceof ApiError ? err.message : 'Não foi possível salvar o Balanço.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const salvarDfc = async () => {
+    setSaving(true);
+    try {
+      await api.put('/api/balanco/cash-flow', { period, operatingCashFlow: n(cf.operatingCashFlow), capex: n(cf.capex) });
+      setCfSaved(true);
+      setTimeout(() => setCfSaved(false), 1600);
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const bsField = (key: keyof BalanceSheetForm, label: string, hint?: string) => (
+    <Field label={label}>
+      <TextInput
+        type="number"
+        step="0.01"
+        value={bs[key]}
+        onChange={(e) => setBs({ ...bs, [key]: e.target.value })}
+        placeholder="0,00"
+      />
+      {hint && <p className="mt-1 text-[10px] text-mut">{hint}</p>}
+    </Field>
+  );
+
+  return (
+    <div className="space-y-4">
+      <Card hover={false}>
+        <SectionTitle right={<TextInput type="month" value={period} onChange={(e) => setPeriod(e.target.value)} style={{ width: 160 }} />}>
+          Período do lançamento
+        </SectionTitle>
+        <p className="text-xs leading-relaxed text-mut">
+          Balanço Patrimonial e DFC não são derivados de Receitas/Despesas/Vendas — precisam ser lançados manualmente
+          a cada mês. Alimentam os índices de Liquidez, Alavancagem, Giro de Ativos, Runway de Caixa e o Score de
+          Saúde Financeira na aba Financeiro.
+        </p>
+      </Card>
+
+      {loading ? (
+        <Spinner />
+      ) : (
+        <>
+          <Card hover={false}>
+            <SectionTitle>Balanço Patrimonial — {period}</SectionTitle>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {bsField('currentAssets', 'Ativo Circulante')}
+              {bsField('inventory', 'Estoques', 'Subconjunto do Ativo Circulante')}
+              {bsField('nonCurrentAssets', 'Ativo Não Circulante')}
+              {bsField('currentLiabilities', 'Passivo Circulante', 'Já inclui a dívida de curto prazo')}
+              {bsField('shortTermDebt', 'Dívida de Curto Prazo', 'Só para o cálculo de alavancagem')}
+              {bsField('longTermDebt', 'Dívida de Longo Prazo')}
+              {bsField('cashAndEquivalents', 'Caixa e Equivalentes')}
+              {bsField('equity', 'Patrimônio Líquido')}
+            </div>
+
+            <div
+              className={`mt-4 rounded-lg border px-3.5 py-2.5 text-xs ${
+                fecha ? 'border-pos/30 bg-pos/10 text-pos' : 'border-warn/30 bg-warn/10 text-warn'
+              }`}
+            >
+              Ativo Total: {fmtBRL(ativoTotal)} — Passivo + PL: {fmtBRL(passivoTotal + n(bs.equity))}
+              {fecha ? ' — balanço fecha ✓' : ` — diferença de ${fmtBRL(Math.abs(diferenca))}, ajuste antes de salvar`}
+            </div>
+            {bsError && <p className="mt-2 text-xs text-neg">{bsError}</p>}
+
+            <div className="mt-3 flex justify-end">
+              <Button onClick={salvarBalanco} disabled={saving}>
+                {bsSaved ? 'Salvo ✓' : 'Salvar Balanço'}
+              </Button>
+            </div>
+          </Card>
+
+          <Card hover={false}>
+            <SectionTitle>DFC — Demonstração de Fluxo de Caixa — {period}</SectionTitle>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Fluxo de Caixa Operacional do mês">
+                <TextInput
+                  type="number"
+                  step="0.01"
+                  value={cf.operatingCashFlow}
+                  onChange={(e) => setCf({ ...cf, operatingCashFlow: e.target.value })}
+                  placeholder="0,00"
+                />
+              </Field>
+              <Field label="CAPEX do mês">
+                <TextInput
+                  type="number"
+                  step="0.01"
+                  value={cf.capex}
+                  onChange={(e) => setCf({ ...cf, capex: e.target.value })}
+                  placeholder="0,00"
+                />
+              </Field>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <Button onClick={salvarDfc} disabled={saving}>
+                {cfSaved ? 'Salvo ✓' : 'Salvar DFC'}
+              </Button>
+            </div>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

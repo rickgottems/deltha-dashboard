@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { prisma } from '../db.js';
 import { ah } from '../lib/http.js';
 import { currentYm, isValidYm, prevPeriod } from '../lib/period.js';
 import {
@@ -9,6 +10,7 @@ import {
   periodFinance,
 } from '../services/finance.js';
 import { evaluateAlerts } from '../services/alerts.js';
+import { evaluateHealthScore } from '../services/healthScore.js';
 
 export const financeiroRouter = Router();
 
@@ -42,15 +44,22 @@ financeiroRouter.get(
     const opts = { companyId, ...(clientId ? { clientId } : {}) };
     const prev = prevPeriod(fromYm, toYm);
 
-    const [atual, anterior, series12, alerts, contrib, inadAtual, inadAnterior] = await Promise.all([
-      periodFinance(fromYm, toYm, opts),
-      periodFinance(prev.fromYm, prev.toYm, opts),
-      financeSeries(12, toYm, opts),
-      evaluateAlerts(toYm, 'financeiro', companyId),
-      contributionMarginAvg(companyId),
-      inadimplenciaPeriod(fromYm, toYm, opts),
-      inadimplenciaPeriod(prev.fromYm, prev.toYm, opts),
-    ]);
+    const [atual, anterior, series12, alerts, contrib, inadAtual, inadAnterior, balanceSheet, cashFlow] =
+      await Promise.all([
+        periodFinance(fromYm, toYm, opts),
+        periodFinance(prev.fromYm, prev.toYm, opts),
+        financeSeries(12, toYm, opts),
+        evaluateAlerts(toYm, 'financeiro', companyId),
+        contributionMarginAvg(companyId),
+        inadimplenciaPeriod(fromYm, toYm, opts),
+        inadimplenciaPeriod(prev.fromYm, prev.toYm, opts),
+        prisma.balanceSheet.findUnique({ where: { companyId_period: { companyId, period: toYm } } }),
+        prisma.cashFlowStatement.findUnique({ where: { companyId_period: { companyId, period: toYm } } }),
+      ]);
+
+    // Saúde financeira (Balanço/DFC) sempre ancorada no último mês do período
+    // (toYm) — mesmo critério já usado para insights/alertas na Fase 1.
+    const saudeFinanceira = evaluateHealthScore(atual, balanceSheet, cashFlow);
 
     res.json({
       fromYm,
@@ -86,6 +95,7 @@ financeiroRouter.get(
       lucroSerie: series12.map((f) => ({ label: f.label, lucro: f.lucroLiquido })),
       fluxoCaixa: series12.map((f) => ({ label: f.label, valor: f.fluxoCaixa })),
       alerts,
+      saudeFinanceira,
       hasData: series12.some((f) => f.receitaBruta > 0 || f.despesasTotais > 0),
     });
   })
