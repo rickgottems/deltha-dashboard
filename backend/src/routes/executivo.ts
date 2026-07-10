@@ -13,6 +13,7 @@ import {
 } from '../services/finance.js';
 import { buildInsights } from '../services/insights.js';
 import { evaluateAlerts } from '../services/alerts.js';
+import { evaluateDreAlerts } from '../services/dreAlerts.js';
 
 export const executivoRouter = Router();
 
@@ -46,13 +47,14 @@ executivoRouter.get(
     const opts = clientId ? { clientId } : {};
     const prev = prevPeriod(fromYm, toYm);
 
-    const [atual, anterior, series12, contrib, insights, alerts, metaReceita] = await Promise.all([
+    const [atual, anterior, series12, contrib, insights, alerts, dreAlerts, metaReceita] = await Promise.all([
       periodFinance(fromYm, toYm, opts),
       periodFinance(prev.fromYm, prev.toYm, opts),
       financeSeries(12, toYm, opts),
       contributionMarginAvg(),
       buildInsights(toYm),
       evaluateAlerts(toYm, 'executivo'),
+      evaluateDreAlerts(fromYm, toYm, opts),
       goalFor('receita_total', toYm),
     ]);
 
@@ -118,6 +120,7 @@ executivoRouter.get(
       waterfall: waterfallFromFinance(atual),
       insights,
       alerts,
+      dreAlerts,
       hasData: series12.some((f) => f.receitaBruta > 0 || f.despesasTotais > 0),
     });
   })

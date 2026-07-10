@@ -29,6 +29,7 @@ interface ExecutivoData {
   waterfall: WaterfallStep[];
   insights: InsightItem[];
   alerts: AlertItem[];
+  dreAlerts: AlertItem[];
   hasData: boolean;
 }
 
@@ -161,6 +162,15 @@ export function Executivo() {
             <InsightsPanel insights={data.insights} />
             <AlertsPanel alerts={data.alerts} />
           </div>
+
+          {/* ---------- Sinais de Alerta do DRE (Fase 3) ---------- */}
+          <AlertsPanel
+            alerts={data.dreAlerts}
+            title="Sinais de Alerta — Análise do DRE"
+            configLink={false}
+            emptyTitle="Nenhum sinal de alerta no período"
+            emptyHint="As 7 regras de análise do DRE (margem bruta, crescimento de receita, qualidade do lucro, margem EBITDA, margem líquida, custos vs vendas e cobertura de juros) não dispararam para este período."
+          />
         </div>
       )}
     </>

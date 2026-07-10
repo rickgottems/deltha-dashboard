@@ -17,26 +17,40 @@ const ICON = {
 } as const;
 
 /**
- * Painel de alertas com sistema de 3 cores. As regras (limiares) são
- * configuráveis em Configurações → Alertas — nada é fixo no componente.
+ * Painel de alertas com sistema de 3 cores. Por padrão mostra as regras
+ * (limiares) configuráveis em Configurações → Alertas. Também reaproveitado
+ * pelo motor de regras fixas do DRE (Fase 3) — nesse caso `configLink=false`
+ * e `title`/`emptyTitle`/`emptyHint` customizados, já que essas regras não
+ * têm limiar editável na UI.
  */
-export function AlertsPanel({ alerts }: { alerts: AlertItem[] }) {
+export function AlertsPanel({
+  alerts,
+  title = 'Alertas',
+  configLink = true,
+  emptyTitle = 'Nenhuma regra avaliável no período',
+  emptyHint = 'Sem dados suficientes para avaliar as regras de alerta, ou nenhuma regra cadastrada em Configurações → Alertas.',
+}: {
+  alerts: AlertItem[];
+  title?: string;
+  configLink?: boolean;
+  emptyTitle?: string;
+  emptyHint?: string;
+}) {
   return (
     <Card hover={false}>
       <SectionTitle
         right={
-          <Link to="/configuracoes?tab=alertas" className="text-[11px] font-semibold text-accent hover:underline">
-            Configurar regras
-          </Link>
+          configLink ? (
+            <Link to="/configuracoes?tab=alertas" className="text-[11px] font-semibold text-accent hover:underline">
+              Configurar regras
+            </Link>
+          ) : undefined
         }
       >
-        Alertas
+        {title}
       </SectionTitle>
       {alerts.length === 0 ? (
-        <EmptyState
-          title="Nenhuma regra avaliável no período"
-          hint="Sem dados suficientes para avaliar as regras de alerta, ou nenhuma regra cadastrada em Configurações → Alertas."
-        />
+        <EmptyState title={emptyTitle} hint={emptyHint} />
       ) : (
         <div className="space-y-2">
           {alerts.map((a) => {

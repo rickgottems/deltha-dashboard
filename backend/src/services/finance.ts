@@ -18,7 +18,7 @@
 
 import { prisma } from '../db.js';
 import { GOAL_DEFAULT_PERIOD } from '../lib/constants.js';
-import { lastMonths, monthRange, prevYm, spanLabel, spanRange, ymLabel, type Range } from '../lib/period.js';
+import { lastMonths, monthRange, prevPeriod, prevYm, spanLabel, spanRange, ymLabel, type Range } from '../lib/period.js';
 
 export interface MonthFinance {
   ym: string;
@@ -142,6 +142,12 @@ export async function periodFinance(fromYm: string, toYm: string, opts: FinanceF
 
 export async function monthFinance(ym: string): Promise<MonthFinance> {
   return periodFinance(ym, ym);
+}
+
+/** Período anterior de mesma duração ao [fromYm, toYm], já calculado. */
+export async function prevPeriodFinance(fromYm: string, toYm: string, opts: FinanceFilterOpts = {}): Promise<FinancePeriod> {
+  const prev = prevPeriod(fromYm, toYm);
+  return periodFinance(prev.fromYm, prev.toYm, opts);
 }
 
 export async function financeSeries(n: number, refYm: string, opts: FinanceFilterOpts = {}): Promise<MonthFinance[]> {
