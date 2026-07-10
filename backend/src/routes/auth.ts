@@ -3,6 +3,7 @@ import { prisma } from '../db.js';
 import { ah, HttpError, requireString } from '../lib/http.js';
 import { requireAuth } from '../lib/auth-middleware.js';
 import { AUTH_COOKIE_NAME, hashPassword, signToken, verifyPassword } from '../services/auth.js';
+import { lookupCnpj } from '../services/cnpjLookup.js';
 import { ACCOUNT_TYPES } from '../lib/constants.js';
 
 export const authRouter = Router();
@@ -26,6 +27,21 @@ const DEFAULT_THRESHOLDS = [
   { metricKey: 'comprometimento_receita', label: 'Despesas ÷ Receita', unit: '%', yellowThreshold: 80, redThreshold: 95, direction: 'ABOVE', scope: 'financeiro' },
   { metricKey: 'margem_contribuicao', label: 'Margem de Contribuição', unit: '%', yellowThreshold: 30, redThreshold: 15, direction: 'BELOW', scope: 'financeiro' },
 ];
+
+/**
+ * GET /api/auth/cnpj-lookup/:cnpj — público (não exige login, é usado na
+ * própria tela de cadastro). Consulta dado cadastral público na Receita
+ * Federal via BrasilAPI — não retorna nada financeiro/fiscal (ver
+ * services/cnpjLookup.ts).
+ */
+authRouter.get(
+  '/cnpj-lookup/:cnpj',
+  ah(async (req, res) => {
+    const info = await lookupCnpj(req.params.cnpj);
+    if (!info) throw new HttpError(404, 'CNPJ não encontrado ou inválido');
+    res.json(info);
+  })
+);
 
 authRouter.post(
   '/register',

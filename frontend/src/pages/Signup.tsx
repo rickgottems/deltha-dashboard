@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { ApiError } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { Button, Field, TextInput } from '../components/ui';
 
 const ACCOUNT_TYPES = [
@@ -9,9 +10,31 @@ const ACCOUNT_TYPES = [
   { key: 'EXTERNO', label: 'Não sou cliente Deltha', hint: 'Vou lançar minhas receitas, despesas e vendas manualmente.' },
 ] as const;
 
+interface CnpjInfo {
+  cnpj: string;
+  razaoSocial: string;
+  nomeFantasia: string | null;
+  situacaoCadastral: string | null;
+  cnaeDescricao: string | null;
+  endereco: string | null;
+}
+
+function formatCnpj(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 14);
+  return d
+    .replace(/^(\d{2})(\d)/, '$1.$2')
+    .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d)/, '.$1/$2')
+    .replace(/(\d{4})(\d)/, '$1-$2');
+}
+
 export function Signup() {
   const { register } = useAuth();
   const navigate = useNavigate();
+  const [cnpj, setCnpj] = useState('');
+  const [cnpjInfo, setCnpjInfo] = useState<CnpjInfo | null>(null);
+  const [cnpjLoading, setCnpjLoading] = useState(false);
+  const [cnpjError, setCnpjError] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -20,12 +43,29 @@ export function Signup() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const digits = cnpj.replace(/\D/g, '');
+
+  const buscarCnpj = async () => {
+    setCnpjError(null);
+    setCnpjInfo(null);
+    setCnpjLoading(true);
+    try {
+      const info = await api.get<CnpjInfo>(`/api/auth/cnpj-lookup/${digits}`);
+      setCnpjInfo(info);
+      if (!companyName) setCompanyName(info.razaoSocial);
+    } catch (err) {
+      setCnpjError(err instanceof ApiError ? err.message : 'Não foi possível consultar o CNPJ agora.');
+    } finally {
+      setCnpjLoading(false);
+    }
+  };
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      await register({ companyName, name, email, password, accountType });
+      await register({ companyName, name, email, password, accountType, cnpj: digits || undefined });
       navigate('/', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não foi possível cadastrar. Tente novamente.');
@@ -51,8 +91,48 @@ export function Signup() {
         <p className="mb-5 text-xs text-mut">Crie sua conta para começar a usar o dashboard.</p>
 
         <form onSubmit={onSubmit} className="space-y-3">
+          <Field label="CNPJ (opcional)">
+            <div className="flex gap-2">
+              <TextInput
+                value={cnpj}
+                onChange={(e) => {
+                  setCnpj(formatCnpj(e.target.value));
+                  setCnpjInfo(null);
+                  setCnpjError(null);
+                }}
+                placeholder="00.000.000/0000-00"
+                inputMode="numeric"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={buscarCnpj}
+                disabled={digits.length !== 14 || cnpjLoading}
+                className="shrink-0"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Search size={13} />
+                  {cnpjLoading ? 'Buscando…' : 'Buscar'}
+                </span>
+              </Button>
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-mut">
+              Preenche automaticamente razão social e endereço com dado público da Receita Federal. Não tem acesso a
+              notas fiscais nem dados financeiros — isso exige o certificado digital da empresa.
+            </p>
+            {cnpjError && <p className="mt-1 text-[11px] text-neg">{cnpjError}</p>}
+            {cnpjInfo && (
+              <div className="mt-2 rounded-lg border border-pos/30 bg-pos/10 p-2.5 text-[11px] leading-snug text-ink">
+                <p className="font-semibold">{cnpjInfo.razaoSocial}</p>
+                {cnpjInfo.endereco && <p className="text-mut">{cnpjInfo.endereco}</p>}
+                {cnpjInfo.cnaeDescricao && <p className="text-mut">{cnpjInfo.cnaeDescricao}</p>}
+                {cnpjInfo.situacaoCadastral && <p className="text-mut">Situação: {cnpjInfo.situacaoCadastral}</p>}
+              </div>
+            )}
+          </Field>
+
           <Field label="Nome da empresa">
-            <TextInput value={companyName} onChange={(e) => setCompanyName(e.target.value)} required autoFocus />
+            <TextInput value={companyName} onChange={(e) => setCompanyName(e.target.value)} required />
           </Field>
           <Field label="Seu nome">
             <TextInput value={name} onChange={(e) => setName(e.target.value)} required />
