@@ -9,7 +9,8 @@ const prisma = new PrismaClient();
 const DEFAULT_THRESHOLDS = [
   // direction BELOW → dispara quando o valor cai abaixo do limiar
   { metricKey: 'margem_liquida', label: 'Margem Líquida', unit: '%', yellowThreshold: 15, redThreshold: 10, direction: 'BELOW', scope: 'ambos' },
-  { metricKey: 'margem_ebitda', label: 'Margem EBITDA', unit: '%', yellowThreshold: 20, redThreshold: 10, direction: 'BELOW', scope: 'executivo' },
+  { metricKey: 'margem_ebitda', label: 'Margem EBITDA', unit: '%', yellowThreshold: 20, redThreshold: 10, direction: 'BELOW', scope: 'ambos' },
+  { metricKey: 'margem_contribuicao', label: 'Margem de Contribuição', unit: '%', yellowThreshold: 30, redThreshold: 15, direction: 'BELOW', scope: 'financeiro' },
   { metricKey: 'atingimento_meta_receita', label: 'Atingimento da meta de receita', unit: '%', yellowThreshold: 90, redThreshold: 70, direction: 'BELOW', scope: 'executivo' },
   { metricKey: 'fluxo_caixa', label: 'Fluxo de Caixa do mês', unit: 'R$', yellowThreshold: 5000, redThreshold: 0, direction: 'BELOW', scope: 'financeiro' },
   // direction ABOVE → dispara quando o valor sobe acima do limiar

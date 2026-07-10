@@ -1,4 +1,5 @@
-import { BadgeDollarSign, Percent, PiggyBank, Receipt } from 'lucide-react';
+import { BadgeDollarSign, Percent, PiggyBank, Receipt, TrendingUp, UserX, Wallet } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
 import { fmtBRLCompact, fmtPct } from '../lib/format';
 import { C } from '../lib/palette';
@@ -16,6 +17,9 @@ interface FinanceiroData {
     despesas: { value: number; varPct: number | null };
     lucroLiquido: { value: number; varPct: number | null };
     margemLiquida: { value: number | null; varPp: number | null };
+    margemContribuicao: { value: number | null; produtos: number };
+    inadimplencia: { value: number | null; varPp: number | null };
+    ebitda: { value: number; varPct: number | null; margemEbitda: number | null };
   };
   receitaXdespesa: { label: string; receita: number; despesa: number }[];
   lucroSerie: { label: string; lucro: number }[];
@@ -85,6 +89,54 @@ export function Financeiro() {
               delta={data.kpis.margemLiquida.varPp}
               deltaSuffix=" p.p."
               emptyHint="Sem receita no mês"
+            />
+          </div>
+
+          {/* ---------- Fase 2: Margem de Contribuição, Inadimplência do período, EBITDA ---------- */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <KpiCard
+              title="Margem de Contribuição"
+              icon={Wallet}
+              value={data.kpis.margemContribuicao.value}
+              formatter={(v) => fmtPct(v)}
+              delta={undefined}
+              emptyHint="Sem produtos"
+              footer={
+                <p className="text-[10px] leading-snug text-mut">
+                  Média de {data.kpis.margemContribuicao.produtos} produto(s) —{' '}
+                  <Link to="/configuracoes?tab=produtos" className="text-accent hover:underline">
+                    cadastro de produtos
+                  </Link>
+                </p>
+              }
+            />
+            <KpiCard
+              title="Inadimplência do Período"
+              icon={UserX}
+              value={data.kpis.inadimplencia.value}
+              formatter={(v) => fmtPct(v)}
+              delta={data.kpis.inadimplencia.varPp}
+              deltaSuffix=" p.p."
+              invertDelta
+              emptyHint="Sem contas a receber no período"
+              footer={
+                <p className="text-[10px] leading-snug text-mut">
+                  Vencido e não pago ÷ total a receber do período filtrado (diferente do indicador de Alertas, que
+                  usa janela fixa de 12 meses).
+                </p>
+              }
+            />
+            <KpiCard
+              title="EBITDA"
+              icon={TrendingUp}
+              value={data.kpis.ebitda.value}
+              formatter={fmtBRLCompact}
+              delta={data.kpis.ebitda.varPct}
+              footer={
+                <p className="text-[10px] leading-snug text-mut">
+                  Margem EBITDA: {data.kpis.ebitda.margemEbitda !== null ? fmtPct(data.kpis.ebitda.margemEbitda) : '—'}
+                </p>
+              }
             />
           </div>
 

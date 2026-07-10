@@ -55,8 +55,16 @@ export const ALERT_METRICS: MetricDef[] = [
     label: 'Margem EBITDA',
     unit: '%',
     defaultDirection: 'BELOW',
-    scope: 'executivo',
+    scope: 'ambos',
     description: 'EBITDA ÷ receita líquida do mês',
+  },
+  {
+    key: 'margem_contribuicao',
+    label: 'Margem de Contribuição',
+    unit: '%',
+    defaultDirection: 'BELOW',
+    scope: 'financeiro',
+    description: 'Média de (preço venda − preço custo) ÷ preço venda dos produtos ativos (Configurações → Produtos)',
   },
   {
     key: 'inadimplencia',

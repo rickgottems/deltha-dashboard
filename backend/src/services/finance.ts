@@ -216,6 +216,34 @@ export async function inadimplencia(refDate = new Date()): Promise<number | null
   return ((overdueAgg._sum.amount ?? 0) / total) * 100;
 }
 
+/**
+ * Inadimplência Real DO PERÍODO selecionado (não confundir com `inadimplencia()`
+ * acima, que é uma janela fixa de 12 meses móveis usada nos Alertas):
+ *   valor vencido e não pago ÷ valor total com vencimento no período (from..to), em %.
+ * Reage aos mesmos filtros de Ano/Mês/Cliente do Financeiro (Fase 1).
+ */
+export async function inadimplenciaPeriod(
+  fromYm: string,
+  toYm: string,
+  opts: FinanceFilterOpts = {}
+): Promise<number | null> {
+  const r = spanRange(fromYm, toYm);
+  const clientWhere = opts.clientId ? { clientId: opts.clientId } : {};
+  const [totalAgg, overdueAgg] = await Promise.all([
+    prisma.receivable.aggregate({
+      _sum: { amount: true },
+      where: { dueDate: { gte: r.start, lt: r.end }, status: { not: 'CANCELADA' }, ...clientWhere },
+    }),
+    prisma.receivable.aggregate({
+      _sum: { amount: true },
+      where: { dueDate: { gte: r.start, lt: r.end }, status: { notIn: ['PAGA', 'CANCELADA'] }, ...clientWhere },
+    }),
+  ]);
+  const total = totalAgg._sum.amount ?? 0;
+  if (total === 0) return null;
+  return ((overdueAgg._sum.amount ?? 0) / total) * 100;
+}
+
 /** Meta configurada: específica do mês ("2026-07") ou padrão ("default"). */
 export async function goalFor(metricKey: string, ym: string): Promise<number | null> {
   const rows = await prisma.goal.findMany({

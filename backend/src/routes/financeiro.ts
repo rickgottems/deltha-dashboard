@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import { ah } from '../lib/http.js';
 import { currentYm, isValidYm, prevPeriod } from '../lib/period.js';
-import { financeSeries, pctChange, periodFinance } from '../services/finance.js';
+import {
+  contributionMarginAvg,
+  financeSeries,
+  inadimplenciaPeriod,
+  pctChange,
+  periodFinance,
+} from '../services/finance.js';
 import { evaluateAlerts } from '../services/alerts.js';
 
 export const financeiroRouter = Router();
@@ -35,11 +41,14 @@ financeiroRouter.get(
     const opts = clientId ? { clientId } : {};
     const prev = prevPeriod(fromYm, toYm);
 
-    const [atual, anterior, series12, alerts] = await Promise.all([
+    const [atual, anterior, series12, alerts, contrib, inadAtual, inadAnterior] = await Promise.all([
       periodFinance(fromYm, toYm, opts),
       periodFinance(prev.fromYm, prev.toYm, opts),
       financeSeries(12, toYm, opts),
       evaluateAlerts(toYm, 'financeiro'),
+      contributionMarginAvg(),
+      inadimplenciaPeriod(fromYm, toYm, opts),
+      inadimplenciaPeriod(prev.fromYm, prev.toYm, opts),
     ]);
 
     res.json({
@@ -57,6 +66,19 @@ financeiroRouter.get(
             atual.margemLiquida !== null && anterior.margemLiquida !== null
               ? atual.margemLiquida - anterior.margemLiquida
               : null,
+        },
+        // Fase 2 — 3 indicadores adicionais (Runway de Caixa e CAC ficaram de
+        // fora: não há dado limpo de saldo de caixa nem de investimento em
+        // aquisição no schema atual — ver auditoria).
+        margemContribuicao: { value: contrib.avg, produtos: contrib.count },
+        inadimplencia: {
+          value: inadAtual,
+          varPp: inadAtual !== null && inadAnterior !== null ? inadAtual - inadAnterior : null,
+        },
+        ebitda: {
+          value: atual.ebitda,
+          varPct: pctChange(atual.ebitda, anterior.ebitda),
+          margemEbitda: atual.margemEbitda,
         },
       },
       receitaXdespesa: series12.map((f) => ({ label: f.label, receita: f.receitaBruta, despesa: f.despesasTotais })),

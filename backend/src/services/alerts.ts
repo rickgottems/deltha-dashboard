@@ -3,7 +3,7 @@
 // este módulo só compara valor × limiar × direção.
 
 import { prisma } from '../db.js';
-import { goalFor, inadimplencia, monthFinance } from './finance.js';
+import { contributionMarginAvg, goalFor, inadimplencia, monthFinance } from './finance.js';
 
 export type AlertLevel = 'critico' | 'atencao' | 'confortavel';
 
@@ -63,6 +63,9 @@ export async function evaluateAlerts(ym: string, scope: 'executivo' | 'financeir
   if (thresholds.some((t) => t.metricKey === 'atingimento_meta_receita')) {
     const meta = await goalFor('receita_total', ym);
     values['atingimento_meta_receita'] = meta && meta > 0 ? (f.receitaBruta / meta) * 100 : null;
+  }
+  if (thresholds.some((t) => t.metricKey === 'margem_contribuicao')) {
+    values['margem_contribuicao'] = (await contributionMarginAvg()).avg;
   }
 
   const alerts: Alert[] = [];
