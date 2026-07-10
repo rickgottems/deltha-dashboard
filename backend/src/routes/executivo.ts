@@ -44,18 +44,19 @@ executivoRouter.get(
       fromYm = toYm = currentYm();
     }
 
-    const opts = clientId ? { clientId } : {};
+    const companyId = req.companyId!;
+    const opts = { companyId, ...(clientId ? { clientId } : {}) };
     const prev = prevPeriod(fromYm, toYm);
 
     const [atual, anterior, series12, contrib, insights, alerts, dreAlerts, metaReceita] = await Promise.all([
       periodFinance(fromYm, toYm, opts),
       periodFinance(prev.fromYm, prev.toYm, opts),
       financeSeries(12, toYm, opts),
-      contributionMarginAvg(),
-      buildInsights(toYm),
-      evaluateAlerts(toYm, 'executivo'),
+      contributionMarginAvg(companyId),
+      buildInsights(toYm, companyId),
+      evaluateAlerts(toYm, 'executivo', companyId),
       evaluateDreAlerts(fromYm, toYm, opts),
-      goalFor('receita_total', toYm),
+      goalFor('receita_total', toYm, companyId),
     ]);
 
     const spark = (pick: (f: (typeof series12)[number]) => number) =>
@@ -64,10 +65,10 @@ executivoRouter.get(
     // Novos clientes: período atual, anterior (mesma duração) e sparkline de 6 meses.
     // Não é afetado por clientId (não faz sentido contar "novos clientes" de 1 cliente).
     const months6 = lastMonths(6, toYm);
-    const novosSeries = await Promise.all(months6.map((m) => newClientsIn(m)));
-    const novosAtual = await newClientsInRange(fromYm, toYm);
-    const novosAnterior = await newClientsInRange(prev.fromYm, prev.toYm);
-    const metaNovos = await goalFor('novos_clientes', toYm);
+    const novosSeries = await Promise.all(months6.map((m) => newClientsIn(m, companyId)));
+    const novosAtual = await newClientsInRange(fromYm, toYm, companyId);
+    const novosAnterior = await newClientsInRange(prev.fromYm, prev.toYm, companyId);
+    const metaNovos = await goalFor('novos_clientes', toYm, companyId);
 
     res.json({
       fromYm,

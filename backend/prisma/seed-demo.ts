@@ -1,18 +1,23 @@
 // ============================================================
 // SEED DE DEMONSTRAÇÃO — OPCIONAL E EXPLÍCITO (npm run db:demo)
 //
-// Popula o banco REAL com dados fictícios coerentes de 12 meses apenas
-// para validar visualmente os dashboards. NÃO roda automaticamente e
-// NÃO faz parte da operação normal: para voltar ao banco limpo use
-//   npm run db:reset   (recria o banco e reaplica só o seed de config)
+// Cria (ou reaproveita) uma empresa de teste dedicada — "Empresa Demo"
+// (login demo@deltha.local / senha demo12345) — e popula 12 meses de dados
+// fictícios coerentes SÓ dentro dela, para validar visualmente os
+// dashboards sem tocar em nenhuma outra empresa cadastrada no banco
+// multiempresa. Para limpar: npm run db:clean (apaga só a Empresa Demo).
 //
 // Nenhum componente do frontend contém dados embutidos — tudo que os
 // dashboards exibem passa pela API e pelo banco, com ou sem este seed.
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
+
+const DEMO_EMAIL = 'demo@deltha.local';
+const DEMO_PASSWORD = 'demo12345';
 
 // Gerador pseudo-aleatório determinístico (reproduzível)
 let rngState = 42;
@@ -31,9 +36,29 @@ const M = now.getUTCMonth(); // mês atual (0-based)
 const dateIn = (monthOffset: number, day: number) => new Date(Date.UTC(Y, M + monthOffset, day));
 
 async function main() {
-  const counts = await Promise.all([prisma.client.count(), prisma.sale.count(), prisma.expense.count()]);
+  let user = await prisma.user.findUnique({ where: { email: DEMO_EMAIL }, include: { company: true } });
+  if (!user) {
+    const company = await prisma.company.create({ data: { name: 'Empresa Demo', accountType: 'EXTERNO' } });
+    user = await prisma.user.create({
+      data: {
+        companyId: company.id,
+        email: DEMO_EMAIL,
+        name: 'Usuário Demo',
+        passwordHash: await bcrypt.hash(DEMO_PASSWORD, 12),
+      },
+      include: { company: true },
+    });
+    console.log(`✔ Empresa Demo criada. Login: ${DEMO_EMAIL} / senha: ${DEMO_PASSWORD}`);
+  }
+  const companyId = user.companyId;
+
+  const counts = await Promise.all([
+    prisma.client.count({ where: { companyId } }),
+    prisma.sale.count({ where: { companyId } }),
+    prisma.expense.count({ where: { companyId } }),
+  ]);
   if (counts.some((c) => c > 0)) {
-    console.error('✖ O banco já contém dados. Rode "npm run db:reset" antes de "npm run db:demo".');
+    console.error('✖ A Empresa Demo já contém dados. Rode "npm run db:clean" antes de "npm run db:demo".');
     process.exit(1);
   }
 
@@ -51,7 +76,7 @@ async function main() {
   const clients = [] as { id: string; profile: string }[];
   for (const [i, c] of clientsData.entries()) {
     const created = await prisma.client.create({
-      data: { name: c.name, email: c.email, createdAt: dateIn(-11 + Math.floor(i * 1.4), 5 + i) },
+      data: { companyId, name: c.name, email: c.email, createdAt: dateIn(-11 + Math.floor(i * 1.4), 5 + i) },
     });
     clients.push({ id: created.id, profile: c.profile });
   }
@@ -59,6 +84,7 @@ async function main() {
   for (let i = 0; i < 3; i++) {
     const created = await prisma.client.create({
       data: {
+        companyId,
         name: ['Estúdio Kraft', 'AgroCampo Insumos', 'Óptica Lumen'][i],
         email: ['contato@kraft.st', 'compras@agrocampo.agr.br', 'lumen@optica.com.br'][i],
         createdAt: dateIn(0, 2 + i * 3),
@@ -76,16 +102,16 @@ async function main() {
     { name: 'Suporte Premium (mensal)', costPrice: 60, salePrice: 149 },
   ];
   const products = [];
-  for (const p of productsData) products.push(await prisma.product.create({ data: p }));
+  for (const p of productsData) products.push(await prisma.product.create({ data: { ...p, companyId } }));
 
   const sellers = [];
   for (const name of ['Lucas Lima', 'Ana Oliveira', 'Rafael Souza']) {
-    sellers.push(await prisma.seller.create({ data: { name } }));
+    sellers.push(await prisma.seller.create({ data: { name, companyId } }));
   }
 
   const teams = [];
   for (const name of ['Equipe Alpha', 'Equipe Beta', 'Equipe Gama', 'Equipe Delta']) {
-    teams.push(await prisma.team.create({ data: { name } }));
+    teams.push(await prisma.team.create({ data: { name, companyId } }));
   }
 
   /* ---------- 12 meses de movimento ---------- */
@@ -137,6 +163,7 @@ async function main() {
 
       await prisma.receivable.create({
         data: {
+          companyId,
           clientId: clients.indexOf(client) % 5 === 4 && rnd() < 0.15 ? null : client.id,
           description: `${category} — ref. ${String(dueDate.getUTCMonth() + 1).padStart(2, '0')}/${dueDate.getUTCFullYear()}`,
           category,
@@ -165,6 +192,7 @@ async function main() {
       const amount = Math.round(e.base * (1 + between(-e.jitter, e.jitter)));
       await prisma.expense.create({
         data: {
+          companyId,
           category: e.category,
           kind: e.kind,
           description: null,
@@ -177,6 +205,7 @@ async function main() {
     if (isCurrent) {
       await prisma.expense.create({
         data: {
+          companyId,
           category: 'Serviços de terceiros',
           kind: 'OPERACIONAL',
           description: 'Consultoria jurídica pontual',
@@ -187,6 +216,7 @@ async function main() {
     } else if (off >= -6) {
       await prisma.expense.create({
         data: {
+          companyId,
           category: 'Serviços de terceiros',
           kind: 'OPERACIONAL',
           amount: Math.round(between(2100, 2900)),
@@ -202,6 +232,7 @@ async function main() {
       const quantity = product.name.includes('Plano') ? 1 + Math.floor(rnd() * 3) : 1;
       await prisma.sale.create({
         data: {
+          companyId,
           productId: product.id,
           clientId: pick(clients).id,
           sellerId: pick(sellers).id,
@@ -232,6 +263,7 @@ async function main() {
       }
       await prisma.task.create({
         data: {
+          companyId,
           teamId: team.id,
           title: `${pick(['Entrega', 'Implantação', 'Revisão', 'Atendimento', 'Manutenção'])} #${String(i + 1).padStart(2, '0')}`,
           dueDate,
@@ -253,13 +285,13 @@ async function main() {
   ];
   for (const g of goals) {
     await prisma.goal.upsert({
-      where: { metricKey_period: { metricKey: g.metricKey, period: g.period } },
-      create: g,
+      where: { companyId_metricKey_period: { companyId, metricKey: g.metricKey, period: g.period } },
+      create: { ...g, companyId },
       update: {},
     });
   }
 
-  console.log('✔ Dados de DEMONSTRAÇÃO criados (12 meses). Para limpar: npm run db:reset');
+  console.log(`✔ Dados de DEMONSTRAÇÃO criados (12 meses) na Empresa Demo (${DEMO_EMAIL}). Para limpar: npm run db:clean`);
 }
 
 main()

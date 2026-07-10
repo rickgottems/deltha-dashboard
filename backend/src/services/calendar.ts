@@ -5,7 +5,7 @@
 // GOOGLE_REDIRECT_URI existirem no .env (ver instruções lá).
 // Sem credenciais, /api/calendar/status responde configured=false e a
 // aba Calendário mostra o estado "não conectado" — NENHUMA outra aba
-// depende desta integração.
+// depende desta integração. Um token por empresa (companyId, provider).
 //
 // Implementada com fetch nativo (Node 18+): authorization code flow com
 // refresh token, tokens persistidos na tabela integration_tokens.
@@ -37,9 +37,11 @@ export function missingEnvVars(): string[] {
   return required.filter((k) => !process.env[k]);
 }
 
-export async function getStatus() {
+export async function getStatus(companyId: string) {
   const config = getConfig();
-  const token = await prisma.integrationToken.findUnique({ where: { provider: PROVIDER } });
+  const token = await prisma.integrationToken.findUnique({
+    where: { companyId_provider: { companyId, provider: PROVIDER } },
+  });
   return {
     configured: config !== null,
     connected: token !== null,
@@ -47,7 +49,7 @@ export async function getStatus() {
   };
 }
 
-export function buildAuthUrl(): string {
+export function buildAuthUrl(companyId: string): string {
   const config = getConfig();
   if (!config) throw new Error('Google Calendar não configurado (.env)');
   const params = new URLSearchParams({
@@ -57,6 +59,9 @@ export function buildAuthUrl(): string {
     scope: SCOPE,
     access_type: 'offline',
     prompt: 'consent',
+    // companyId volta no callback do Google via "state" — é assim que
+    // sabemos de qual empresa é o token quando o Google redireciona de volta.
+    state: companyId,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
@@ -81,7 +86,7 @@ async function tokenRequest(body: Record<string, string>): Promise<TokenResponse
   return (await res.json()) as TokenResponse;
 }
 
-export async function handleCallback(code: string): Promise<void> {
+export async function handleCallback(code: string, companyId: string): Promise<void> {
   const config = getConfig();
   if (!config) throw new Error('Google Calendar não configurado (.env)');
   const data = await tokenRequest({
@@ -93,8 +98,9 @@ export async function handleCallback(code: string): Promise<void> {
   });
   const expiryDate = new Date(Date.now() + data.expires_in * 1000);
   await prisma.integrationToken.upsert({
-    where: { provider: PROVIDER },
+    where: { companyId_provider: { companyId, provider: PROVIDER } },
     create: {
+      companyId,
       provider: PROVIDER,
       accessToken: data.access_token,
       refreshToken: data.refresh_token ?? null,
@@ -110,10 +116,12 @@ export async function handleCallback(code: string): Promise<void> {
   });
 }
 
-async function getValidAccessToken(): Promise<string> {
+async function getValidAccessToken(companyId: string): Promise<string> {
   const config = getConfig();
   if (!config) throw new Error('Google Calendar não configurado (.env)');
-  const token = await prisma.integrationToken.findUnique({ where: { provider: PROVIDER } });
+  const token = await prisma.integrationToken.findUnique({
+    where: { companyId_provider: { companyId, provider: PROVIDER } },
+  });
   if (!token) throw new Error('Google Calendar não conectado');
 
   const isExpired = token.expiryDate ? token.expiryDate.getTime() - Date.now() < 60_000 : true;
@@ -127,7 +135,7 @@ async function getValidAccessToken(): Promise<string> {
     grant_type: 'refresh_token',
   });
   await prisma.integrationToken.update({
-    where: { provider: PROVIDER },
+    where: { companyId_provider: { companyId, provider: PROVIDER } },
     data: {
       accessToken: data.access_token,
       expiryDate: new Date(Date.now() + data.expires_in * 1000),
@@ -146,8 +154,8 @@ export interface CalendarEvent {
   link: string | null;
 }
 
-export async function listEvents(timeMinIso: string, timeMaxIso: string): Promise<CalendarEvent[]> {
-  const accessToken = await getValidAccessToken();
+export async function listEvents(timeMinIso: string, timeMaxIso: string, companyId: string): Promise<CalendarEvent[]> {
+  const accessToken = await getValidAccessToken(companyId);
   const params = new URLSearchParams({
     timeMin: timeMinIso,
     timeMax: timeMaxIso,
@@ -175,8 +183,10 @@ export async function listEvents(timeMinIso: string, timeMaxIso: string): Promis
   }));
 }
 
-export async function disconnect(): Promise<void> {
-  const token = await prisma.integrationToken.findUnique({ where: { provider: PROVIDER } });
+export async function disconnect(companyId: string): Promise<void> {
+  const token = await prisma.integrationToken.findUnique({
+    where: { companyId_provider: { companyId, provider: PROVIDER } },
+  });
   if (!token) return;
   // Melhor esforço: revogar no Google (não bloqueia a desconexão local)
   try {
@@ -187,5 +197,5 @@ export async function disconnect(): Promise<void> {
   } catch {
     // offline ou token já inválido — seguir com a remoção local
   }
-  await prisma.integrationToken.delete({ where: { provider: PROVIDER } });
+  await prisma.integrationToken.delete({ where: { companyId_provider: { companyId, provider: PROVIDER } } });
 }

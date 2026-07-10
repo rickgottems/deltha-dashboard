@@ -1,9 +1,12 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpError } from './lib/http.js';
+import { requireAuth } from './lib/auth-middleware.js';
+import { authRouter } from './routes/auth.js';
 import { executivoRouter } from './routes/executivo.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,10 +25,16 @@ import { importacoesRouter } from './routes/importacoes.js';
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
 
-app.use(cors({ origin: process.env.FRONTEND_URL ?? 'http://localhost:5173' }));
+app.use(cors({ origin: process.env.FRONTEND_URL ?? 'http://localhost:5173', credentials: true }));
 app.use(express.json());
+app.use(cookieParser());
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+
+// /api/auth/* é público (registro e login não podem exigir sessão prévia).
+// Toda rota abaixo dele exige sessão válida — ver lib/auth-middleware.ts.
+app.use('/api/auth', authRouter);
+app.use('/api', requireAuth);
 
 app.use('/api/executivo', executivoRouter);
 app.use('/api/financeiro', financeiroRouter);
@@ -59,13 +68,10 @@ app.use(
   }
 );
 
-// Sem host explícito, Express escuta em todas as interfaces (0.0.0.0) — é o
-// que permite a equipe do escritório acessar o dashboard de suas próprias
-// máquinas apontando para o IP do servidor (topologia real de uso). Esse
-// mesmo comportamento também expõe a API, sem autenticação, a qualquer
-// dispositivo na mesma rede. Para restringir a acessos só da própria máquina
-// (ex.: ambiente de desenvolvimento, ou quando o acesso da equipe for só via
-// um proxy/túnel autenticado na frente), defina HOST=127.0.0.1 no .env.
+// Sem host explícito, Express escuta em todas as interfaces (0.0.0.0). Toda
+// rota /api/* (exceto /api/health e /api/auth/*) exige sessão válida — ver
+// lib/auth-middleware.ts — e cada empresa só enxerga seus próprios dados
+// (companyId do token, nunca do corpo da requisição).
 const host = process.env.HOST;
 const onListening = () => console.log(`✔ API Deltha rodando em http://${host ?? 'localhost'}:${port}`);
 if (host) app.listen(port, host, onListening);

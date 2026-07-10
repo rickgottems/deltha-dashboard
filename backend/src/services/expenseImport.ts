@@ -151,7 +151,8 @@ function validateMapping(mapping: ColumnMapping): void {
 export async function commitExpenseImport(
   buffer: Buffer,
   filename: string,
-  mapping: ColumnMapping
+  mapping: ColumnMapping,
+  companyId: string
 ): Promise<ExpenseImportResult> {
   validateMapping(mapping);
   const rows = await readRowsFromBuffer(buffer, filename);
@@ -190,7 +191,7 @@ export async function commitExpenseImport(
 
       const hash = rowHash(dateIso, amount, description);
       const already = await prisma.importedDocument.findUnique({
-        where: { source_externalId: { source: 'DOMINIO_EXPENSE', externalId: hash } },
+        where: { companyId_source_externalId: { companyId, source: 'DOMINIO_EXPENSE', externalId: hash } },
       });
       if (already) {
         result.duplicadasIgnoradas++;
@@ -200,6 +201,7 @@ export async function commitExpenseImport(
 
       const expense = await prisma.expense.create({
         data: {
+          companyId,
           category,
           kind,
           description: description || null,
@@ -211,6 +213,7 @@ export async function commitExpenseImport(
 
       await prisma.importedDocument.create({
         data: {
+          companyId,
           source: 'DOMINIO_EXPENSE',
           externalId: hash,
           filePath: filename,

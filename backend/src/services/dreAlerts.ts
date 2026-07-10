@@ -39,7 +39,7 @@ const DRE_RULE_THRESHOLDS = {
 export async function evaluateDreAlerts(
   fromYm: string,
   toYm: string,
-  opts: FinanceFilterOpts = {}
+  opts: FinanceFilterOpts
 ): Promise<DreAlert[]> {
   const [atual, anterior] = await Promise.all([
     periodFinance(fromYm, toYm, opts),

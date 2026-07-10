@@ -33,13 +33,13 @@ function monthsInRange(r: Range): string[] {
   return out.slice(-24); // proteção: máximo 24 meses por relatório
 }
 
-export async function buildReport(tab: string, r: Range): Promise<ReportData> {
+export async function buildReport(tab: string, r: Range, companyId: string): Promise<ReportData> {
   const periodLabel = `${D(r.start)} a ${D(new Date(r.end.getTime() - 1))}`;
 
   switch (tab) {
     case 'receitas': {
       const rows = await prisma.receivable.findMany({
-        where: { dueDate: { gte: r.start, lt: r.end } },
+        where: { companyId, dueDate: { gte: r.start, lt: r.end } },
         include: { client: true },
         orderBy: { dueDate: 'asc' },
       });
@@ -73,7 +73,7 @@ export async function buildReport(tab: string, r: Range): Promise<ReportData> {
     }
     case 'despesas': {
       const rows = await prisma.expense.findMany({
-        where: { date: { gte: r.start, lt: r.end } },
+        where: { companyId, date: { gte: r.start, lt: r.end } },
         orderBy: { date: 'asc' },
       });
       const byCat = new Map<string, number>();
@@ -98,7 +98,7 @@ export async function buildReport(tab: string, r: Range): Promise<ReportData> {
     case 'financeiro':
     case 'executivo': {
       const months = monthsInRange(r);
-      const series = await Promise.all(months.map((ym) => monthFinance(ym)));
+      const series = await Promise.all(months.map((ym) => monthFinance(ym, companyId)));
       return {
         title: tab === 'executivo' ? 'Relatório Executivo' : 'Relatório Financeiro',
         periodLabel,
@@ -129,7 +129,7 @@ export async function buildReport(tab: string, r: Range): Promise<ReportData> {
     }
     case 'vendas': {
       const sales = await prisma.sale.findMany({
-        where: { date: { gte: r.start, lt: r.end } },
+        where: { companyId, date: { gte: r.start, lt: r.end } },
         include: { product: true, client: true, seller: true },
         orderBy: { date: 'asc' },
       });
@@ -169,8 +169,8 @@ export async function buildReport(tab: string, r: Range): Promise<ReportData> {
     }
     case 'clientes': {
       const [clients, risks] = await Promise.all([
-        prisma.client.findMany({ include: { sales: true, receivables: true } }),
-        riskByClient(),
+        prisma.client.findMany({ where: { companyId }, include: { sales: true, receivables: true } }),
+        riskByClient(companyId),
       ]);
       return {
         title: 'Relatório de Clientes',
@@ -205,7 +205,7 @@ export async function buildReport(tab: string, r: Range): Promise<ReportData> {
     }
     case 'operacoes': {
       const tasks = await prisma.task.findMany({
-        where: { dueDate: { gte: r.start, lt: r.end } },
+        where: { companyId, dueDate: { gte: r.start, lt: r.end } },
         include: { team: true },
         orderBy: { dueDate: 'asc' },
       });

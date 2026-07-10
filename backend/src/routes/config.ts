@@ -17,8 +17,8 @@ export const configRouter = Router();
 
 configRouter.get(
   '/produtos',
-  ah(async (_req, res) => {
-    const rows = await prisma.product.findMany({ orderBy: { name: 'asc' } });
+  ah(async (req, res) => {
+    const rows = await prisma.product.findMany({ where: { companyId: req.companyId! }, orderBy: { name: 'asc' } });
     res.json(
       rows.map((p) => ({
         ...p,
@@ -34,6 +34,7 @@ configRouter.post(
   ah(async (req, res) => {
     const created = await prisma.product.create({
       data: {
+        companyId: req.companyId!,
         name: requireString(req.body.name, 'name'),
         costPrice: requireNumber(req.body.costPrice, 'costPrice'),
         salePrice: requireNumber(req.body.salePrice, 'salePrice'),
@@ -47,8 +48,8 @@ configRouter.post(
 configRouter.put(
   '/produtos/:id',
   ah(async (req, res) => {
-    const updated = await prisma.product.update({
-      where: { id: req.params.id },
+    const result = await prisma.product.updateMany({
+      where: { id: req.params.id, companyId: req.companyId! },
       data: {
         ...(req.body.name ? { name: String(req.body.name) } : {}),
         ...(req.body.costPrice !== undefined ? { costPrice: requireNumber(req.body.costPrice, 'costPrice') } : {}),
@@ -56,6 +57,8 @@ configRouter.put(
         ...(req.body.active !== undefined ? { active: Boolean(req.body.active) } : {}),
       },
     });
+    if (result.count === 0) throw new HttpError(404, 'Produto não encontrado');
+    const updated = await prisma.product.findUnique({ where: { id: req.params.id } });
     res.json(updated);
   })
 );
@@ -63,7 +66,8 @@ configRouter.put(
 configRouter.delete(
   '/produtos/:id',
   ah(async (req, res) => {
-    await prisma.product.delete({ where: { id: req.params.id } });
+    const result = await prisma.product.deleteMany({ where: { id: req.params.id, companyId: req.companyId! } });
+    if (result.count === 0) throw new HttpError(404, 'Produto não encontrado');
     res.status(204).end();
   })
 );
@@ -72,8 +76,11 @@ configRouter.delete(
 
 configRouter.get(
   '/metas',
-  ah(async (_req, res) => {
-    const rows = await prisma.goal.findMany({ orderBy: [{ metricKey: 'asc' }, { period: 'asc' }] });
+  ah(async (req, res) => {
+    const rows = await prisma.goal.findMany({
+      where: { companyId: req.companyId! },
+      orderBy: [{ metricKey: 'asc' }, { period: 'asc' }],
+    });
     res.json({
       metricas: GOAL_METRICS,
       metas: rows,
@@ -84,6 +91,7 @@ configRouter.get(
 configRouter.put(
   '/metas',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const metricKey = requireString(req.body.metricKey, 'metricKey');
     if (!GOAL_METRICS.some((g) => g.key === metricKey))
       throw new HttpError(400, `Métrica de meta desconhecida: ${metricKey}`);
@@ -92,8 +100,8 @@ configRouter.put(
       throw new HttpError(400, 'period deve ser "default" ou "YYYY-MM"');
     const value = requireNumber(req.body.value, 'value');
     const saved = await prisma.goal.upsert({
-      where: { metricKey_period: { metricKey, period } },
-      create: { metricKey, period, value },
+      where: { companyId_metricKey_period: { companyId, metricKey, period } },
+      create: { companyId, metricKey, period, value },
       update: { value },
     });
     res.json(saved);
@@ -103,7 +111,8 @@ configRouter.put(
 configRouter.delete(
   '/metas/:id',
   ah(async (req, res) => {
-    await prisma.goal.delete({ where: { id: req.params.id } });
+    const result = await prisma.goal.deleteMany({ where: { id: req.params.id, companyId: req.companyId! } });
+    if (result.count === 0) throw new HttpError(404, 'Meta não encontrada');
     res.status(204).end();
   })
 );
@@ -112,8 +121,8 @@ configRouter.delete(
 
 configRouter.get(
   '/thresholds',
-  ah(async (_req, res) => {
-    const rows = await prisma.alertThreshold.findMany();
+  ah(async (req, res) => {
+    const rows = await prisma.alertThreshold.findMany({ where: { companyId: req.companyId! } });
     // Devolve o catálogo de métricas + regra cadastrada (se houver)
     res.json(
       ALERT_METRICS.map((m) => {
@@ -139,6 +148,7 @@ configRouter.get(
 configRouter.put(
   '/thresholds/:metricKey',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const metricKey = req.params.metricKey;
     const def = ALERT_METRICS.find((m) => m.key === metricKey);
     if (!def) throw new HttpError(400, `Métrica de alerta desconhecida: ${metricKey}`);
@@ -152,8 +162,9 @@ configRouter.put(
     const redThreshold = requireNumber(req.body.redThreshold, 'redThreshold');
 
     const saved = await prisma.alertThreshold.upsert({
-      where: { metricKey },
+      where: { companyId_metricKey: { companyId, metricKey } },
       create: {
+        companyId,
         metricKey,
         label: def.label,
         unit: def.unit,
@@ -171,7 +182,7 @@ configRouter.put(
 configRouter.delete(
   '/thresholds/:metricKey',
   ah(async (req, res) => {
-    await prisma.alertThreshold.deleteMany({ where: { metricKey: req.params.metricKey } });
+    await prisma.alertThreshold.deleteMany({ where: { metricKey: req.params.metricKey, companyId: req.companyId! } });
     res.status(204).end();
   })
 );
@@ -180,12 +191,13 @@ configRouter.delete(
 
 configRouter.get(
   '/catalogos',
-  ah(async (_req, res) => {
+  ah(async (req, res) => {
+    const companyId = req.companyId!;
     const [clients, products, sellers, teams] = await Promise.all([
-      prisma.client.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
-      prisma.product.findMany({ select: { id: true, name: true, salePrice: true }, where: { active: true }, orderBy: { name: 'asc' } }),
-      prisma.seller.findMany({ orderBy: { name: 'asc' } }),
-      prisma.team.findMany({ orderBy: { name: 'asc' } }),
+      prisma.client.findMany({ where: { companyId }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+      prisma.product.findMany({ where: { companyId, active: true }, select: { id: true, name: true, salePrice: true }, orderBy: { name: 'asc' } }),
+      prisma.seller.findMany({ where: { companyId }, orderBy: { name: 'asc' } }),
+      prisma.team.findMany({ where: { companyId }, orderBy: { name: 'asc' } }),
     ]);
     res.json({
       clients,
@@ -200,8 +212,8 @@ configRouter.get(
 
 configRouter.get(
   '/integracoes',
-  ah(async (_req, res) => {
-    res.json({ googleCalendar: await calendarStatus() });
+  ah(async (req, res) => {
+    res.json({ googleCalendar: await calendarStatus(req.companyId!) });
   })
 );
 
@@ -210,7 +222,9 @@ configRouter.get(
 configRouter.post(
   '/vendedores',
   ah(async (req, res) => {
-    const created = await prisma.seller.create({ data: { name: requireString(req.body.name, 'name') } });
+    const created = await prisma.seller.create({
+      data: { name: requireString(req.body.name, 'name'), companyId: req.companyId! },
+    });
     res.status(201).json(created);
   })
 );
@@ -218,7 +232,8 @@ configRouter.post(
 configRouter.delete(
   '/vendedores/:id',
   ah(async (req, res) => {
-    await prisma.seller.delete({ where: { id: req.params.id } });
+    const result = await prisma.seller.deleteMany({ where: { id: req.params.id, companyId: req.companyId! } });
+    if (result.count === 0) throw new HttpError(404, 'Vendedor não encontrado');
     res.status(204).end();
   })
 );

@@ -22,12 +22,12 @@ const fmtBRL = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 const fmtPct = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
 
-export async function buildInsights(ym: string): Promise<Insight[]> {
-  const { atual, anterior } = await monthWithPrev(ym);
+export async function buildInsights(ym: string, companyId: string): Promise<Insight[]> {
+  const { atual, anterior } = await monthWithPrev(ym, companyId);
   const out: Insight[] = [];
 
   // 1) Receita vs meta configurada (se houver)
-  const meta = await goalFor('receita_total', ym);
+  const meta = await goalFor('receita_total', ym, companyId);
   if (meta && meta > 0) {
     const ating = (atual.receitaBruta / meta) * 100;
     if (ating >= 100) {
@@ -88,7 +88,7 @@ export async function buildInsights(ym: string): Promise<Insight[]> {
   }
 
   // 4) Despesa fora do padrão (categoria > 2× média de 6 meses)
-  const anomaly = await expenseAnomaly(ym);
+  const anomaly = await expenseAnomaly(ym, companyId);
   if (anomaly) {
     out.push({
       tone: 'negativo',
@@ -99,10 +99,10 @@ export async function buildInsights(ym: string): Promise<Insight[]> {
   }
 
   // 5) Inadimplência relevante
-  const inad = await inadimplencia();
+  const inad = await inadimplencia(companyId);
   if (inad !== null && inad >= 3) {
     const abertos = await prisma.receivable.count({
-      where: { status: { notIn: ['PAGA', 'CANCELADA'] }, dueDate: { lt: new Date() } },
+      where: { companyId, status: { notIn: ['PAGA', 'CANCELADA'] }, dueDate: { lt: new Date() } },
     });
     out.push({
       tone: 'negativo',

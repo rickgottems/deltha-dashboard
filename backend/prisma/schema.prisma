@@ -1,11 +1,14 @@
 // ============================================================
 // Deltha Dashboard — Schema do banco de dados
 //
-// Banco atual: SQLite (arquivo local, zero instalação).
-// PORTABILIDADE PostgreSQL: trocar provider para "postgresql" e
-// apontar DATABASE_URL no .env (ex: postgresql://user:pass@localhost:5432/deltha).
-// O schema evita recursos não portáveis (enums nativos, etc.) de propósito:
-// campos de status usam String com valores documentados em src/lib/constants.ts.
+// Multiempresa (SaaS): cada empresa que se cadastra é uma `Company`,
+// isolada das demais — toda tabela de negócio carrega `companyId` e é
+// sempre filtrada por ele nas rotas (ver backend/src/lib/auth-middleware.ts).
+// `accountType` distingue Cliente Deltha (dados chegam via importação
+// automática de NF-e) de Externo (lança tudo manualmente) — ver Fase B.
+//
+// Banco: PostgreSQL (Railway). Migrado de SQLite em 2026-07 para suportar
+// escrita concorrente de várias empresas ao mesmo tempo.
 // ============================================================
 
 generator client {
@@ -13,21 +16,64 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String
+  cnpj        String?
+  // DELTHA_CLIENT | EXTERNO (ver src/lib/constants.ts) — Fase B ativa o uso real disso na UI
+  accountType String   @default("EXTERNO")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  users               User[]
+  clients             Client[]
+  receivables         Receivable[]
+  expenses            Expense[]
+  products            Product[]
+  sellers             Seller[]
+  sales               Sale[]
+  teams               Team[]
+  tasks               Task[]
+  goals               Goal[]
+  alertThresholds     AlertThreshold[]
+  integrationTokens   IntegrationToken[]
+  importedDocuments   ImportedDocument[]
+
+  @@map("companies")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  companyId    String   @map("company_id")
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([companyId])
+  @@map("users")
 }
 
 model Client {
   id          String       @id @default(cuid())
+  companyId   String       @map("company_id")
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name        String
   email       String?
   phone       String?
   // CNPJ do destinatário — chave de upsert para clientes vindos de importação de NF-e.
-  cnpj        String?      @unique
+  // Único POR EMPRESA (duas empresas-cliente podem ambas ter o mesmo CNPJ como cliente delas).
+  cnpj        String?
   createdAt   DateTime     @default(now()) @map("created_at")
   receivables Receivable[]
   sales       Sale[]
 
+  @@unique([companyId, cnpj])
+  @@index([companyId])
   @@map("clients")
 }
 
@@ -35,6 +81,8 @@ model Client {
 // pelo score de risco de inadimplência (client_id, due_date, paid_date, amount, status).
 model Receivable {
   id          String    @id @default(cuid())
+  companyId   String    @map("company_id")
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   clientId    String?   @map("client_id")
   client      Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
   description String?
@@ -48,13 +96,15 @@ model Receivable {
   source      String    @default("MANUAL")
   createdAt   DateTime  @default(now()) @map("created_at")
 
-  @@index([dueDate])
+  @@index([companyId, dueDate])
   @@index([clientId])
   @@map("receivables")
 }
 
 model Expense {
   id          String   @id @default(cuid())
+  companyId   String   @map("company_id")
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   category    String   @default("Geral")
   // Classificação DRE: DEDUCAO | CUSTO | OPERACIONAL | DEPRECIACAO | FINANCEIRA | OUTRA
   // Usada no waterfall (Receita Bruta → ... → Lucro Operacional) e no EBITDA.
@@ -66,12 +116,14 @@ model Expense {
   source      String   @default("MANUAL")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  @@index([date])
+  @@index([companyId, date])
   @@map("expenses")
 }
 
 model Product {
   id        String   @id @default(cuid())
+  companyId String   @map("company_id")
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name      String
   costPrice Float    @map("cost_price")
   salePrice Float    @map("sale_price")
@@ -79,19 +131,25 @@ model Product {
   createdAt DateTime @default(now()) @map("created_at")
   sales     Sale[]
 
+  @@index([companyId])
   @@map("products")
 }
 
 model Seller {
-  id    String @id @default(cuid())
-  name  String
-  sales Sale[]
+  id        String  @id @default(cuid())
+  companyId String  @map("company_id")
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  sales     Sale[]
 
+  @@index([companyId])
   @@map("sellers")
 }
 
 model Sale {
   id        String   @id @default(cuid())
+  companyId String   @map("company_id")
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   productId String?  @map("product_id")
   product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
   clientId  String?  @map("client_id")
@@ -105,20 +163,25 @@ model Sale {
   source    String   @default("MANUAL")
   createdAt DateTime @default(now()) @map("created_at")
 
-  @@index([date])
+  @@index([companyId, date])
   @@map("sales")
 }
 
 model Team {
-  id    String @id @default(cuid())
-  name  String
-  tasks Task[]
+  id        String  @id @default(cuid())
+  companyId String  @map("company_id")
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  tasks     Task[]
 
+  @@index([companyId])
   @@map("teams")
 }
 
 model Task {
   id            String    @id @default(cuid())
+  companyId     String    @map("company_id")
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   teamId        String?   @map("team_id")
   team          Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
   title         String
@@ -130,7 +193,7 @@ model Task {
   delayReason   String?   @map("delay_reason")
   createdAt     DateTime  @default(now()) @map("created_at")
 
-  @@index([dueDate])
+  @@index([companyId, dueDate])
   @@map("tasks")
 }
 
@@ -138,50 +201,60 @@ model Task {
 // direction BELOW: dispara quando o valor fica ABAIXO do limiar (ex: margem).
 // direction ABOVE: dispara quando o valor fica ACIMA do limiar (ex: despesas).
 model AlertThreshold {
-  id              String @id @default(cuid())
-  metricKey       String @unique @map("metric_key")
+  id              String  @id @default(cuid())
+  companyId       String  @map("company_id")
+  company         Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  metricKey       String  @map("metric_key")
   label           String
-  yellowThreshold Float  @map("yellow_threshold")
-  redThreshold    Float  @map("red_threshold")
-  direction       String @default("BELOW")
-  unit            String @default("%")
+  yellowThreshold Float   @map("yellow_threshold")
+  redThreshold    Float   @map("red_threshold")
+  direction       String  @default("BELOW")
+  unit            String  @default("%")
   // Em quais painéis o alerta aparece: executivo | financeiro | ambos
-  scope           String @default("ambos")
+  scope           String  @default("ambos")
 
+  @@unique([companyId, metricKey])
   @@map("alert_thresholds")
 }
 
 // Metas configuráveis via UI (Configurações → Metas).
 // period: "YYYY-MM" para meta de um mês específico, ou "default" (vale para todos os meses).
 model Goal {
-  id        String @id @default(cuid())
-  metricKey String @map("metric_key")
-  period    String @default("default")
+  id        String  @id @default(cuid())
+  companyId String  @map("company_id")
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  metricKey String  @map("metric_key")
+  period    String  @default("default")
   value     Float
 
-  @@unique([metricKey, period])
+  @@unique([companyId, metricKey, period])
   @@map("goals")
 }
 
-// Tokens OAuth de integrações externas (Google Calendar).
+// Tokens OAuth de integrações externas (Google Calendar) — um por empresa.
 model IntegrationToken {
   id           String    @id @default(cuid())
-  provider     String    @unique
+  companyId    String    @map("company_id")
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  provider     String
   accessToken  String    @map("access_token")
   refreshToken String?   @map("refresh_token")
   expiryDate   DateTime? @map("expiry_date")
   scope        String?
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
+  @@unique([companyId, provider])
   @@map("integration_tokens")
 }
 
-// Rastreia documentos externos já importados (idempotência/deduplicação).
+// Rastreia documentos externos já importados (idempotência/deduplicação), por empresa.
 // Cobre tanto NF-e (source=NFE, externalId=chave de acesso de 44 dígitos)
 // quanto planilhas do Domínio (source=DOMINIO_EXPENSE, externalId=hash de
 // data+valor+descrição por LINHA da planilha — ver services/expenseImport.ts).
 model ImportedDocument {
   id           String   @id @default(cuid())
+  companyId    String   @map("company_id")
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   // NFE | DOMINIO_EXPENSE (futuros: NFCE, NFSE, CTE)
   source       String
   // chNFe (NF-e) ou hash SHA-256 da linha (planilha Domínio)
@@ -194,7 +267,7 @@ model ImportedDocument {
   createdIds   String?
   importedAt   DateTime @default(now()) @map("imported_at")
 
-  @@unique([source, externalId])
-  @@index([source])
+  @@unique([companyId, source, externalId])
+  @@index([companyId, source])
   @@map("imported_documents")
 }

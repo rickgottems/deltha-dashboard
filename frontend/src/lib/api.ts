@@ -11,6 +11,7 @@ export class ApiError extends Error {
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
+    credentials: 'include', // envia o cookie httpOnly de sessão em toda chamada
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -35,7 +36,7 @@ export const api = {
   del: <T = void>(url: string) => request<T>('DELETE', url),
   // Upload multipart (ex.: wizard de importação de despesas do Domínio).
   postForm: async <T>(url: string, formData: FormData): Promise<T> => {
-    const res = await fetch(url, { method: 'POST', body: formData }); // sem Content-Type manual: o browser define o boundary
+    const res = await fetch(url, { method: 'POST', credentials: 'include', body: formData }); // sem Content-Type manual: o browser define o boundary
     if (!res.ok) {
       let message = `Erro ${res.status}`;
       try {

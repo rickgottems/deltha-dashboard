@@ -43,38 +43,39 @@ async function listXmlFiles(dirPath: string): Promise<string[]> {
 }
 
 /** Upsert de Product por NOME (não cProd — código do fornecedor pode ser reaproveitado por sistemas diferentes). */
-async function upsertProductByName(tx: TxClient, xProd: string, vUnCom: number) {
-  const existing = await tx.product.findFirst({ where: { name: xProd } });
+async function upsertProductByName(tx: TxClient, companyId: string, xProd: string, vUnCom: number) {
+  const existing = await tx.product.findFirst({ where: { companyId, name: xProd } });
   if (existing) return existing;
   // TODO-NEGOCIO: produto criado automaticamente por NF-e nasce com costPrice=0.
   // Até alguém completar o preço de custo manualmente em Configurações → Produtos,
   // a margem de contribuição desse produto aparece como 100% (distorce o KPI do Executivo).
-  return tx.product.create({ data: { name: xProd, costPrice: 0, salePrice: vUnCom, active: true } });
+  return tx.product.create({ data: { companyId, name: xProd, costPrice: 0, salePrice: vUnCom, active: true } });
 }
 
-/** Upsert de Client por CNPJ (nome de empresa varia entre notas; CNPJ é a chave de negócio real). */
-async function upsertClientByCnpj(tx: TxClient, cnpj: string | null, nome: string) {
+/** Upsert de Client por CNPJ (nome de empresa varia entre notas; CNPJ é a chave de negócio real, única POR EMPRESA). */
+async function upsertClientByCnpj(tx: TxClient, companyId: string, cnpj: string | null, nome: string) {
   if (!cnpj) {
     // Caso raro (sem CNPJ nem CPF no destinatário): evita duplicar demais buscando por nome primeiro.
-    const existing = await tx.client.findFirst({ where: { name: nome } });
-    return existing ?? tx.client.create({ data: { name: nome } });
+    const existing = await tx.client.findFirst({ where: { companyId, name: nome } });
+    return existing ?? tx.client.create({ data: { companyId, name: nome } });
   }
   return tx.client.upsert({
-    where: { cnpj },
+    where: { companyId_cnpj: { companyId, cnpj } },
     update: { name: nome },
-    create: { cnpj, name: nome },
+    create: { companyId, cnpj, name: nome },
   });
 }
 
-async function importOneNfe(nfe: ParsedNfe, filePath: string): Promise<void> {
+async function importOneNfe(nfe: ParsedNfe, filePath: string, companyId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    const client = await upsertClientByCnpj(tx, nfe.destCnpj, nfe.destNome);
+    const client = await upsertClientByCnpj(tx, companyId, nfe.destCnpj, nfe.destNome);
 
     const saleIds: string[] = [];
     for (const item of nfe.itens) {
-      const product = await upsertProductByName(tx, item.xProd, item.vUnCom);
+      const product = await upsertProductByName(tx, companyId, item.xProd, item.vUnCom);
       const sale = await tx.sale.create({
         data: {
+          companyId,
           productId: product.id,
           clientId: client.id,
           sellerId: null, // "Vendedor:" em infCpl é texto livre inconsistente entre emissores — não parsear
@@ -98,6 +99,7 @@ async function importOneNfe(nfe: ParsedNfe, filePath: string): Promise<void> {
       for (const dup of nfe.duplicatas) {
         const r = await tx.receivable.create({
           data: {
+            companyId,
             clientId: client.id,
             description: `NF-e ${nfe.numeroNota} parcela ${dup.nDup}`,
             category: 'Vendas NF-e',
@@ -113,6 +115,7 @@ async function importOneNfe(nfe: ParsedNfe, filePath: string): Promise<void> {
       const quitado = isPagamentoQuitadoNaEmissao(nfe.pagamentoAvista.tPag);
       const r = await tx.receivable.create({
         data: {
+          companyId,
           clientId: client.id,
           description: `NF-e ${nfe.numeroNota}`,
           category: 'Vendas NF-e',
@@ -128,6 +131,7 @@ async function importOneNfe(nfe: ParsedNfe, filePath: string): Promise<void> {
 
     await tx.importedDocument.create({
       data: {
+        companyId,
         source: 'NFE',
         externalId: nfe.chaveAcesso,
         filePath,
@@ -138,7 +142,7 @@ async function importOneNfe(nfe: ParsedNfe, filePath: string): Promise<void> {
   });
 }
 
-export async function importNfeFromDirectory(dirPath: string): Promise<NfeImportResult[]> {
+export async function importNfeFromDirectory(dirPath: string, companyId: string): Promise<NfeImportResult[]> {
   const files = await listXmlFiles(dirPath);
   const results: NfeImportResult[] = [];
 
@@ -155,23 +159,23 @@ export async function importNfeFromDirectory(dirPath: string): Promise<NfeImport
       externalIdParaErro = nfe.chaveAcesso;
 
       const already = await prisma.importedDocument.findUnique({
-        where: { source_externalId: { source: 'NFE', externalId: nfe.chaveAcesso } },
+        where: { companyId_source_externalId: { companyId, source: 'NFE', externalId: nfe.chaveAcesso } },
       });
       if (already) {
         results.push({ arquivo: filePath, status: already.status === 'ERRO' ? 'ERRO' : 'JA_IMPORTADO', detalhe: already.errorMessage ?? undefined });
         continue;
       }
 
-      await importOneNfe(nfe, filePath);
+      await importOneNfe(nfe, filePath, companyId);
       results.push({ arquivo: filePath, status: 'IMPORTADO' });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // Registra o erro fora da transação que falhou, para não reprocessar o
       // mesmo XML corrompido a cada execução — mas a falha fica visível/auditável.
       await prisma.importedDocument.upsert({
-        where: { source_externalId: { source: 'NFE', externalId: externalIdParaErro } },
+        where: { companyId_source_externalId: { companyId, source: 'NFE', externalId: externalIdParaErro } },
         update: { status: 'ERRO', errorMessage: message, filePath },
-        create: { source: 'NFE', externalId: externalIdParaErro, filePath, status: 'ERRO', errorMessage: message },
+        create: { companyId, source: 'NFE', externalId: externalIdParaErro, filePath, status: 'ERRO', errorMessage: message },
       });
       results.push({ arquivo: filePath, status: 'ERRO', detalhe: message });
     }

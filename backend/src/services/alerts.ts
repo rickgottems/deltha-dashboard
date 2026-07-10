@@ -43,13 +43,13 @@ function fmt(value: number, unit: string): string {
 }
 
 /** Calcula o valor atual de cada métrica com regra cadastrada e classifica. */
-export async function evaluateAlerts(ym: string, scope: 'executivo' | 'financeiro'): Promise<Alert[]> {
+export async function evaluateAlerts(ym: string, scope: 'executivo' | 'financeiro', companyId: string): Promise<Alert[]> {
   const thresholds = await prisma.alertThreshold.findMany({
-    where: { scope: { in: [scope, 'ambos'] } },
+    where: { companyId, scope: { in: [scope, 'ambos'] } },
   });
   if (thresholds.length === 0) return [];
 
-  const f = await monthFinance(ym);
+  const f = await monthFinance(ym, companyId);
   const values: Record<string, number | null> = {
     margem_liquida: f.margemLiquida,
     margem_ebitda: f.margemEbitda,
@@ -58,14 +58,14 @@ export async function evaluateAlerts(ym: string, scope: 'executivo' | 'financeir
   };
 
   if (thresholds.some((t) => t.metricKey === 'inadimplencia')) {
-    values['inadimplencia'] = await inadimplencia();
+    values['inadimplencia'] = await inadimplencia(companyId);
   }
   if (thresholds.some((t) => t.metricKey === 'atingimento_meta_receita')) {
-    const meta = await goalFor('receita_total', ym);
+    const meta = await goalFor('receita_total', ym, companyId);
     values['atingimento_meta_receita'] = meta && meta > 0 ? (f.receitaBruta / meta) * 100 : null;
   }
   if (thresholds.some((t) => t.metricKey === 'margem_contribuicao')) {
-    values['margem_contribuicao'] = (await contributionMarginAvg()).avg;
+    values['margem_contribuicao'] = (await contributionMarginAvg(companyId)).avg;
   }
 
   const alerts: Alert[] = [];

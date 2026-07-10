@@ -91,11 +91,11 @@ export function computeRisk(
 }
 
 /** Risco de todos os clientes com base nos últimos 12 meses de cobranças. */
-export async function riskByClient(): Promise<Map<string, ClientRisk>> {
+export async function riskByClient(companyId: string): Promise<Map<string, ClientRisk>> {
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), now.getUTCDate()));
   const rows = await prisma.receivable.findMany({
-    where: { clientId: { not: null }, dueDate: { gte: start } },
+    where: { companyId, clientId: { not: null }, dueDate: { gte: start } },
     select: { clientId: true, dueDate: true, paidDate: true, status: true, amount: true },
   });
   const byClient = new Map<string, typeof rows>();

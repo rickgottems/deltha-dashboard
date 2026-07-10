@@ -1,9 +1,10 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Calendar,
   ClipboardList,
   FileText,
   LayoutDashboard,
+  LogOut,
   Settings,
   ShoppingCart,
   TrendingDown,
@@ -11,6 +12,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const NAV = [
   { to: '/', label: 'Executivo', icon: LayoutDashboard, end: true },
@@ -26,6 +28,14 @@ const NAV = [
 ];
 
 export function Sidebar() {
+  const { company, user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const onLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
+
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-line bg-[#05081a]">
       <div className="flex items-center gap-2.5 px-5 pb-6 pt-6">
@@ -61,10 +71,18 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-line px-5 py-4 text-[10px] leading-relaxed text-mut">
-        Radar Deltha v1.0
-        <br />
-        Dados do banco local (SQLite)
+      <div className="border-t border-line px-5 py-4">
+        <div className="mb-2 min-w-0">
+          <div className="truncate text-xs font-semibold text-ink">{company?.name}</div>
+          <div className="truncate text-[10px] text-mut">{user?.email}</div>
+        </div>
+        <button
+          onClick={onLogout}
+          className="flex items-center gap-1.5 text-[11px] font-semibold text-mut transition-colors hover:text-neg"
+        >
+          <LogOut size={13} />
+          Sair
+        </button>
       </div>
     </aside>
   );

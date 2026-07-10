@@ -12,9 +12,10 @@ const DAY = 24 * 60 * 60 * 1000;
 despesasRouter.get(
   '/',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const r = rangeFromQuery(req.query.from as string | undefined, req.query.to as string | undefined);
     const rows = await prisma.expense.findMany({
-      where: { date: { gte: r.start, lt: r.end } },
+      where: { companyId, date: { gte: r.start, lt: r.end } },
       orderBy: { date: 'desc' },
     });
 
@@ -57,11 +58,13 @@ despesasRouter.get(
 despesasRouter.post(
   '/',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const kind = String(req.body.kind ?? 'OPERACIONAL');
     if (!EXPENSE_KINDS.includes(kind as any))
       throw new HttpError(400, `Classificação inválida. Use: ${EXPENSE_KINDS.join(', ')}`);
     const created = await prisma.expense.create({
       data: {
+        companyId,
         category: requireString(req.body.category, 'category'),
         kind,
         description: req.body.description ? String(req.body.description) : null,
@@ -76,11 +79,12 @@ despesasRouter.post(
 despesasRouter.put(
   '/:id',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const kind = req.body.kind ? String(req.body.kind) : undefined;
     if (kind && !EXPENSE_KINDS.includes(kind as any))
       throw new HttpError(400, `Classificação inválida. Use: ${EXPENSE_KINDS.join(', ')}`);
-    const updated = await prisma.expense.update({
-      where: { id: req.params.id },
+    const result = await prisma.expense.updateMany({
+      where: { id: req.params.id, companyId },
       data: {
         ...(req.body.category ? { category: String(req.body.category) } : {}),
         ...(kind ? { kind } : {}),
@@ -89,6 +93,8 @@ despesasRouter.put(
         ...(req.body.date ? { date: requireDate(req.body.date, 'date') } : {}),
       },
     });
+    if (result.count === 0) throw new HttpError(404, 'Despesa não encontrada');
+    const updated = await prisma.expense.findUnique({ where: { id: req.params.id } });
     res.json(updated);
   })
 );
@@ -96,7 +102,9 @@ despesasRouter.put(
 despesasRouter.delete(
   '/:id',
   ah(async (req, res) => {
-    await prisma.expense.delete({ where: { id: req.params.id } });
+    const companyId = req.companyId!;
+    const result = await prisma.expense.deleteMany({ where: { id: req.params.id, companyId } });
+    if (result.count === 0) throw new HttpError(404, 'Despesa não encontrada');
     res.status(204).end();
   })
 );

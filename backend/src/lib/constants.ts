@@ -3,6 +3,12 @@
 
 export const RECEIVABLE_STATUS = ['PENDENTE', 'PAGA', 'ATRASADA', 'CANCELADA'] as const;
 
+// Tipo de conta da empresa cadastrada:
+//  DELTHA_CLIENT — cliente do escritório Deltha; dados podem chegar via importação
+//                  automática de NF-e (uma vez configurada pelo escritório)
+//  EXTERNO       — empresa fora da carteira do escritório; lança tudo manualmente
+export const ACCOUNT_TYPES = ['DELTHA_CLIENT', 'EXTERNO'] as const;
+
 // Classificação DRE simplificada das despesas:
 //  DEDUCAO     — impostos/deduções sobre a receita (entre Receita Bruta e Líquida)
 //  CUSTO       — custo direto (CMV/CSV)

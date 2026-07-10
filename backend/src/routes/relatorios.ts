@@ -29,7 +29,7 @@ relatoriosRouter.get(
     if (!['pdf', 'xlsx'].includes(format)) throw new HttpError(400, 'Formato inválido. Use pdf ou xlsx');
 
     const r = rangeFromQuery(req.query.from as string | undefined, req.query.to as string | undefined);
-    const report = await buildReport(tab, r);
+    const report = await buildReport(tab, r, req.companyId!);
     const stamp = new Date().toISOString().slice(0, 10);
     const filename = `relatorio-${tab}-${stamp}.${format}`;
 

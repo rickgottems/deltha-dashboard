@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
-import { ah, requireDate, requireNumber } from '../lib/http.js';
+import { ah, HttpError, requireDate, requireNumber } from '../lib/http.js';
 import { currentYm, isValidYm, lastMonths, monthRange, ymLabel } from '../lib/period.js';
 import { goalFor, pctChange, salesSummary } from '../services/finance.js';
 
@@ -14,20 +14,21 @@ export const vendasRouter = Router();
 vendasRouter.get(
   '/summary',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const ym = isValidYm(String(req.query.month ?? '')) ? String(req.query.month) : currentYm();
     const r = monthRange(ym);
     const prev = lastMonths(2, ym)[0];
 
     const [atual, anterior, meta] = await Promise.all([
-      salesSummary(ym),
-      salesSummary(prev),
-      goalFor('faturamento_vendas', ym),
+      salesSummary(ym, companyId),
+      salesSummary(prev, companyId),
+      goalFor('faturamento_vendas', ym, companyId),
     ]);
 
     // Clientes ativos: com pelo menos 1 compra nos últimos 90 dias
     const activeSince = new Date(r.end.getTime() - 90 * 24 * 60 * 60 * 1000);
     const ativos = await prisma.sale.findMany({
-      where: { date: { gte: activeSince, lt: r.end }, clientId: { not: null } },
+      where: { companyId, date: { gte: activeSince, lt: r.end }, clientId: { not: null } },
       select: { clientId: true },
       distinct: ['clientId'],
     });
@@ -37,12 +38,12 @@ vendasRouter.get(
       by: ['clientId'],
       _sum: { amount: true },
       _count: { id: true },
-      where: { date: { gte: r.start, lt: r.end }, clientId: { not: null } },
+      where: { companyId, date: { gte: r.start, lt: r.end }, clientId: { not: null } },
       orderBy: { _sum: { amount: 'desc' } },
       take: 10,
     });
     const clientes = await prisma.client.findMany({
-      where: { id: { in: compras.map((c) => c.clientId!).filter(Boolean) } },
+      where: { companyId, id: { in: compras.map((c) => c.clientId!).filter(Boolean) } },
     });
     const ranking = compras.map((c, i) => ({
       posicao: i + 1,
@@ -55,12 +56,12 @@ vendasRouter.get(
     const porProduto = await prisma.sale.groupBy({
       by: ['productId'],
       _sum: { amount: true, quantity: true },
-      where: { date: { gte: r.start, lt: r.end } },
+      where: { companyId, date: { gte: r.start, lt: r.end } },
       orderBy: { _sum: { amount: 'desc' } },
       take: 10,
     });
     const produtos = await prisma.product.findMany({
-      where: { id: { in: porProduto.map((p) => p.productId!).filter(Boolean) } },
+      where: { companyId, id: { in: porProduto.map((p) => p.productId!).filter(Boolean) } },
     });
     const maisVendidos = porProduto.map((p, i) => ({
       posicao: i + 1,
@@ -73,7 +74,7 @@ vendasRouter.get(
     const months12 = lastMonths(12, ym);
     const evolucao = await Promise.all(
       months12.map(async (m) => {
-        const s = await salesSummary(m);
+        const s = await salesSummary(m, companyId);
         return { label: ymLabel(m), valor: s.total };
       })
     );
@@ -102,10 +103,11 @@ vendasRouter.get(
 vendasRouter.get(
   '/',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const ym = isValidYm(String(req.query.month ?? '')) ? String(req.query.month) : currentYm();
     const r = monthRange(ym);
     const rows = await prisma.sale.findMany({
-      where: { date: { gte: r.start, lt: r.end } },
+      where: { companyId, date: { gte: r.start, lt: r.end } },
       include: {
         product: { select: { name: true } },
         client: { select: { name: true } },
@@ -131,17 +133,19 @@ vendasRouter.get(
 vendasRouter.post(
   '/',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const quantity = Math.max(1, Math.round(requireNumber(req.body.quantity ?? 1, 'quantity')));
     let amount = req.body.amount !== undefined && req.body.amount !== '' ? requireNumber(req.body.amount, 'amount') : null;
 
     // Sem valor informado: usa preço de venda do produto × quantidade
     if (amount === null && req.body.productId) {
-      const product = await prisma.product.findUnique({ where: { id: String(req.body.productId) } });
+      const product = await prisma.product.findFirst({ where: { id: String(req.body.productId), companyId } });
       if (product) amount = product.salePrice * quantity;
     }
 
     const created = await prisma.sale.create({
       data: {
+        companyId,
         productId: req.body.productId ? String(req.body.productId) : null,
         clientId: req.body.clientId ? String(req.body.clientId) : null,
         sellerId: req.body.sellerId ? String(req.body.sellerId) : null,
@@ -157,7 +161,9 @@ vendasRouter.post(
 vendasRouter.delete(
   '/:id',
   ah(async (req, res) => {
-    await prisma.sale.delete({ where: { id: req.params.id } });
+    const companyId = req.companyId!;
+    const result = await prisma.sale.deleteMany({ where: { id: req.params.id, companyId } });
+    if (result.count === 0) throw new HttpError(404, 'Venda não encontrada');
     res.status(204).end();
   })
 );

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
-import { ah, optionalDate, requireDate, requireString } from '../lib/http.js';
+import { ah, HttpError, optionalDate, requireDate, requireString } from '../lib/http.js';
 import { currentYm, isValidYm, lastMonths, monthRange, ymLabel } from '../lib/period.js';
 
 export const operacoesRouter = Router();
@@ -21,11 +21,12 @@ interface MonthOps {
  *  - atrasadas: entregues após o prazo OU vencidas sem entrega
  *  - prazoMedioDias: média de (deliveredDate − createdAt) das entregues
  */
-async function monthOps(ym: string, teamId?: string): Promise<MonthOps> {
+async function monthOps(ym: string, companyId: string, teamId?: string): Promise<MonthOps> {
   const r = monthRange(ym);
   const now = new Date();
   const tasks = await prisma.task.findMany({
     where: {
+      companyId,
       dueDate: { gte: r.start, lt: r.end },
       status: { not: 'CANCELADA' },
       ...(teamId ? { teamId } : {}),
@@ -57,20 +58,21 @@ async function monthOps(ym: string, teamId?: string): Promise<MonthOps> {
 operacoesRouter.get(
   '/summary',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const ym = isValidYm(String(req.query.month ?? '')) ? String(req.query.month) : currentYm();
     const prev = lastMonths(2, ym)[0];
     const r = monthRange(ym);
 
     const [atual, anterior, teams] = await Promise.all([
-      monthOps(ym),
-      monthOps(prev),
-      prisma.team.findMany({ orderBy: { name: 'asc' } }),
+      monthOps(ym, companyId),
+      monthOps(prev, companyId),
+      prisma.team.findMany({ where: { companyId }, orderBy: { name: 'asc' } }),
     ]);
 
     // Produtividade por equipe: % de tarefas do mês entregues no prazo
     const equipes = await Promise.all(
       teams.map(async (team) => {
-        const ops = await monthOps(ym, team.id);
+        const ops = await monthOps(ym, companyId, team.id);
         const encerradas = ops.noPrazo + ops.atrasadas;
         return {
           id: team.id,
@@ -98,7 +100,7 @@ operacoesRouter.get(
     const months12 = lastMonths(12, ym);
     const serie = await Promise.all(
       months12.map(async (m) => {
-        const ops = await monthOps(m);
+        const ops = await monthOps(m, companyId);
         const p = pct(ops);
         return { label: ymLabel(m), noPrazo: p.noPrazo, atrasado: p.atrasado };
       })
@@ -108,6 +110,7 @@ operacoesRouter.get(
     const now = new Date();
     const atrasadasMes = await prisma.task.findMany({
       where: {
+        companyId,
         dueDate: { gte: r.start, lt: r.end },
         status: { not: 'CANCELADA' },
       },
@@ -165,10 +168,11 @@ operacoesRouter.get(
 operacoesRouter.get(
   '/tasks',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const ym = isValidYm(String(req.query.month ?? '')) ? String(req.query.month) : currentYm();
     const r = monthRange(ym);
     const rows = await prisma.task.findMany({
-      where: { dueDate: { gte: r.start, lt: r.end } },
+      where: { companyId, dueDate: { gte: r.start, lt: r.end } },
       include: { team: { select: { id: true, name: true } } },
       orderBy: { dueDate: 'asc' },
     });
@@ -189,8 +193,10 @@ operacoesRouter.get(
 operacoesRouter.post(
   '/tasks',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const created = await prisma.task.create({
       data: {
+        companyId,
         title: requireString(req.body.title, 'title'),
         teamId: req.body.teamId ? String(req.body.teamId) : null,
         dueDate: requireDate(req.body.dueDate, 'dueDate'),
@@ -206,9 +212,10 @@ operacoesRouter.post(
 operacoesRouter.put(
   '/tasks/:id',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const delivered = req.body.deliveredDate !== undefined ? optionalDate(req.body.deliveredDate) : undefined;
-    const updated = await prisma.task.update({
-      where: { id: req.params.id },
+    const result = await prisma.task.updateMany({
+      where: { id: req.params.id, companyId },
       data: {
         ...(req.body.title ? { title: String(req.body.title) } : {}),
         ...(req.body.teamId !== undefined ? { teamId: req.body.teamId || null } : {}),
@@ -218,6 +225,8 @@ operacoesRouter.put(
         ...(req.body.delayReason !== undefined ? { delayReason: req.body.delayReason || null } : {}),
       },
     });
+    if (result.count === 0) throw new HttpError(404, 'Tarefa não encontrada');
+    const updated = await prisma.task.findUnique({ where: { id: req.params.id } });
     res.json(updated);
   })
 );
@@ -225,7 +234,9 @@ operacoesRouter.put(
 operacoesRouter.delete(
   '/tasks/:id',
   ah(async (req, res) => {
-    await prisma.task.delete({ where: { id: req.params.id } });
+    const companyId = req.companyId!;
+    const result = await prisma.task.deleteMany({ where: { id: req.params.id, companyId } });
+    if (result.count === 0) throw new HttpError(404, 'Tarefa não encontrada');
     res.status(204).end();
   })
 );
@@ -233,15 +244,17 @@ operacoesRouter.delete(
 /** Equipes. */
 operacoesRouter.get(
   '/teams',
-  ah(async (_req, res) => {
-    res.json(await prisma.team.findMany({ orderBy: { name: 'asc' } }));
+  ah(async (req, res) => {
+    res.json(await prisma.team.findMany({ where: { companyId: req.companyId! }, orderBy: { name: 'asc' } }));
   })
 );
 
 operacoesRouter.post(
   '/teams',
   ah(async (req, res) => {
-    const created = await prisma.team.create({ data: { name: requireString(req.body.name, 'name') } });
+    const created = await prisma.team.create({
+      data: { name: requireString(req.body.name, 'name'), companyId: req.companyId! },
+    });
     res.status(201).json(created);
   })
 );
@@ -249,7 +262,8 @@ operacoesRouter.post(
 operacoesRouter.delete(
   '/teams/:id',
   ah(async (req, res) => {
-    await prisma.team.delete({ where: { id: req.params.id } });
+    const result = await prisma.team.deleteMany({ where: { id: req.params.id, companyId: req.companyId! } });
+    if (result.count === 0) throw new HttpError(404, 'Equipe não encontrada');
     res.status(204).end();
   })
 );

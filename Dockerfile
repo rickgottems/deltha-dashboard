@@ -25,6 +25,10 @@ ENV NODE_ENV=production
 ENV PORT=3001
 
 WORKDIR /app/backend
-# Cria/atualiza as tabelas do SQLite antes de subir o servidor (o container
-# não tem banco nenhum na primeira execução — migrate deploy cria do zero).
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run db:seed && npm start"]
+# `db push` (não `migrate deploy`) porque ainda não há histórico de migrations
+# versionado para Postgres (banco multiempresa novo, sem dado real de cliente
+# a proteger ainda) — sincroniza o schema direto. SEM --accept-data-loss de
+# propósito: se um deploy futuro tentar uma mudança que perderia dados reais,
+# o comando FALHA em vez de apagar silenciosamente — trocar para migrations
+# versionadas (prisma migrate) antes de operar com dados reais em produção.
+CMD ["sh", "-c", "npx prisma db push && npm start"]

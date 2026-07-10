@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CalendarCheck2, CalendarX2, Pencil, Plus, Trash2, Users2 } from 'lucide-react';
 import { useFetch } from '../hooks/useFetch';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { fmtBRL, fmtPct } from '../lib/format';
 import { C } from '../lib/palette';
@@ -874,16 +875,26 @@ function DominioImportCard() {
 /* ---------------- Usuários ---------------- */
 
 function UsuariosTab() {
+  const { user, company } = useAuth();
   return (
     <Card hover={false}>
       <SectionTitle>Usuários e permissões</SectionTitle>
-      <div className="flex items-start gap-3 rounded-lg border border-line bg-panel2/40 p-4">
-        <Users2 size={18} className="mt-0.5 shrink-0 text-mut" />
-        <p className="text-sm leading-relaxed text-mut">
-          Nesta versão o sistema roda em modo <b className="text-ink">usuário único local</b> — não há login nem perfis.
-          Gestão de usuários/permissões (multiusuário com papéis, ex.: dono × financeiro × vendas) está prevista como
-          evolução e exigirá backend de autenticação (sessões/JWT). Nenhuma tela atual depende disso.
-        </p>
+      <div className="space-y-3">
+        <div className="rounded-lg border border-line bg-panel2/40 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-mut">Empresa</p>
+          <p className="mt-0.5 text-sm text-ink">{company?.name}</p>
+          <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-mut">Conta logada</p>
+          <p className="mt-0.5 text-sm text-ink">
+            {user?.name} — {user?.email}
+          </p>
+        </div>
+        <div className="flex items-start gap-3 rounded-lg border border-line bg-panel2/40 p-4">
+          <Users2 size={18} className="mt-0.5 shrink-0 text-mut" />
+          <p className="text-sm leading-relaxed text-mut">
+            Cada empresa cadastrada vê só os próprios dados. Múltiplos usuários por empresa (papéis, ex.: dono × financeiro
+            × vendas) está previsto como evolução futura — hoje o cadastro cria 1 usuário por empresa.
+          </p>
+        </div>
       </div>
     </Card>
   );

@@ -16,9 +16,10 @@ const DAY = 24 * 60 * 60 * 1000;
 receitasRouter.get(
   '/',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const r = rangeFromQuery(req.query.from as string | undefined, req.query.to as string | undefined);
     const rows = await prisma.receivable.findMany({
-      where: { dueDate: { gte: r.start, lt: r.end } },
+      where: { companyId, dueDate: { gte: r.start, lt: r.end } },
       include: { client: { select: { id: true, name: true } } },
       orderBy: { dueDate: 'desc' },
     });
@@ -69,11 +70,13 @@ receitasRouter.get(
 receitasRouter.post(
   '/',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const status = String(req.body.status ?? 'PENDENTE');
     if (!RECEIVABLE_STATUS.includes(status as any))
       throw new HttpError(400, `Status inválido. Use: ${RECEIVABLE_STATUS.join(', ')}`);
     const created = await prisma.receivable.create({
       data: {
+        companyId,
         description: req.body.description ? String(req.body.description) : null,
         category: requireString(req.body.category, 'category'),
         amount: requireNumber(req.body.amount, 'amount'),
@@ -90,11 +93,12 @@ receitasRouter.post(
 receitasRouter.put(
   '/:id',
   ah(async (req, res) => {
+    const companyId = req.companyId!;
     const status = req.body.status ? String(req.body.status) : undefined;
     if (status && !RECEIVABLE_STATUS.includes(status as any))
       throw new HttpError(400, `Status inválido. Use: ${RECEIVABLE_STATUS.join(', ')}`);
-    const updated = await prisma.receivable.update({
-      where: { id: req.params.id },
+    const result = await prisma.receivable.updateMany({
+      where: { id: req.params.id, companyId },
       data: {
         ...(req.body.description !== undefined ? { description: req.body.description || null } : {}),
         ...(req.body.category ? { category: String(req.body.category) } : {}),
@@ -105,6 +109,8 @@ receitasRouter.put(
         ...(req.body.clientId !== undefined ? { clientId: req.body.clientId || null } : {}),
       },
     });
+    if (result.count === 0) throw new HttpError(404, 'Receita não encontrada');
+    const updated = await prisma.receivable.findUnique({ where: { id: req.params.id } });
     res.json(updated);
   })
 );
@@ -112,7 +118,9 @@ receitasRouter.put(
 receitasRouter.delete(
   '/:id',
   ah(async (req, res) => {
-    await prisma.receivable.delete({ where: { id: req.params.id } });
+    const companyId = req.companyId!;
+    const result = await prisma.receivable.deleteMany({ where: { id: req.params.id, companyId } });
+    if (result.count === 0) throw new HttpError(404, 'Receita não encontrada');
     res.status(204).end();
   })
 );

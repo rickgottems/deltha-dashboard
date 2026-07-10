@@ -38,15 +38,16 @@ financeiroRouter.get(
       fromYm = toYm = currentYm();
     }
 
-    const opts = clientId ? { clientId } : {};
+    const companyId = req.companyId!;
+    const opts = { companyId, ...(clientId ? { clientId } : {}) };
     const prev = prevPeriod(fromYm, toYm);
 
     const [atual, anterior, series12, alerts, contrib, inadAtual, inadAnterior] = await Promise.all([
       periodFinance(fromYm, toYm, opts),
       periodFinance(prev.fromYm, prev.toYm, opts),
       financeSeries(12, toYm, opts),
-      evaluateAlerts(toYm, 'financeiro'),
-      contributionMarginAvg(),
+      evaluateAlerts(toYm, 'financeiro', companyId),
+      contributionMarginAvg(companyId),
       inadimplenciaPeriod(fromYm, toYm, opts),
       inadimplenciaPeriod(prev.fromYm, prev.toYm, opts),
     ]);

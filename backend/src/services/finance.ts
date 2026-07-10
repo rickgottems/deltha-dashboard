@@ -14,6 +14,9 @@
 //   Margem EBITDA       = EBITDA ÷ Receita Líquida
 //   Margem Líquida      = Lucro Líquido ÷ Receita Líquida
 //   Fluxo de Caixa      = Σ receivables PAGAS (paidDate no mês) − Σ expenses (regime caixa)
+//
+// TODA função aqui exige `companyId` (multiempresa) — nunca opcional, para
+// que seja impossível esquecer o escopo de tenant numa agregação nova.
 // ============================================================
 
 import { prisma } from '../db.js';
@@ -42,21 +45,24 @@ export interface MonthFinance {
 }
 
 /**
- * Opções de recorte por Cliente. IMPORTANTE: `Expense` não tem `clientId`
- * no schema (despesas não são atribuíveis a um cliente específico) — então
- * um filtro de cliente só consegue recortar a RECEITA (receitaBruta,
- * recebimentos, receitaLiquida). Custos/Despesas/EBITDA/Lucro continuam
- * sendo os da empresa inteira. `FinancePeriod.clientFiltered` sinaliza isso
- * para a UI exibir o aviso correspondente.
+ * Opções de recorte. `companyId` é sempre obrigatório (isolamento
+ * multiempresa). `clientId` é opcional — IMPORTANTE: `Expense` não tem
+ * `clientId` no schema (despesas não são atribuíveis a um cliente
+ * específico), então um filtro de cliente só consegue recortar a RECEITA
+ * (receitaBruta, recebimentos, receitaLiquida). Custos/Despesas/EBITDA/Lucro
+ * continuam sendo os da empresa inteira. `FinancePeriod.clientFiltered`
+ * sinaliza isso para a UI exibir o aviso correspondente.
  */
 export interface FinanceFilterOpts {
+  companyId: string;
   clientId?: string;
 }
 
-async function sumReceivablesDue(r: Range, opts: FinanceFilterOpts = {}): Promise<number> {
+async function sumReceivablesDue(r: Range, opts: FinanceFilterOpts): Promise<number> {
   const agg = await prisma.receivable.aggregate({
     _sum: { amount: true },
     where: {
+      companyId: opts.companyId,
       dueDate: { gte: r.start, lt: r.end },
       status: { not: 'CANCELADA' },
       ...(opts.clientId ? { clientId: opts.clientId } : {}),
@@ -65,10 +71,11 @@ async function sumReceivablesDue(r: Range, opts: FinanceFilterOpts = {}): Promis
   return agg._sum.amount ?? 0;
 }
 
-async function sumReceivablesPaid(r: Range, opts: FinanceFilterOpts = {}): Promise<number> {
+async function sumReceivablesPaid(r: Range, opts: FinanceFilterOpts): Promise<number> {
   const agg = await prisma.receivable.aggregate({
     _sum: { amount: true },
     where: {
+      companyId: opts.companyId,
       paidDate: { gte: r.start, lt: r.end },
       status: 'PAGA',
       ...(opts.clientId ? { clientId: opts.clientId } : {}),
@@ -77,11 +84,11 @@ async function sumReceivablesPaid(r: Range, opts: FinanceFilterOpts = {}): Promi
   return agg._sum.amount ?? 0;
 }
 
-async function expensesByKind(r: Range): Promise<Record<string, number>> {
+async function expensesByKind(r: Range, companyId: string): Promise<Record<string, number>> {
   const rows = await prisma.expense.groupBy({
     by: ['kind'],
     _sum: { amount: true },
-    where: { date: { gte: r.start, lt: r.end } },
+    where: { companyId, date: { gte: r.start, lt: r.end } },
   });
   const out: Record<string, number> = {};
   for (const row of rows) out[row.kind] = row._sum.amount ?? 0;
@@ -95,11 +102,11 @@ export interface FinancePeriod extends MonthFinance {
 }
 
 /** Núcleo do cálculo: agrega um Range arbitrário (1 mês ou vários), com filtro opcional de cliente. */
-export async function periodFinance(fromYm: string, toYm: string, opts: FinanceFilterOpts = {}): Promise<FinancePeriod> {
+export async function periodFinance(fromYm: string, toYm: string, opts: FinanceFilterOpts): Promise<FinancePeriod> {
   const r = spanRange(fromYm, toYm);
   const [receitaBruta, kinds, recebimentos] = await Promise.all([
     sumReceivablesDue(r, opts),
-    expensesByKind(r),
+    expensesByKind(r, opts.companyId),
     sumReceivablesPaid(r, opts),
   ]);
 
@@ -140,17 +147,17 @@ export async function periodFinance(fromYm: string, toYm: string, opts: FinanceF
   };
 }
 
-export async function monthFinance(ym: string): Promise<MonthFinance> {
-  return periodFinance(ym, ym);
+export async function monthFinance(ym: string, companyId: string): Promise<MonthFinance> {
+  return periodFinance(ym, ym, { companyId });
 }
 
 /** Período anterior de mesma duração ao [fromYm, toYm], já calculado. */
-export async function prevPeriodFinance(fromYm: string, toYm: string, opts: FinanceFilterOpts = {}): Promise<FinancePeriod> {
+export async function prevPeriodFinance(fromYm: string, toYm: string, opts: FinanceFilterOpts): Promise<FinancePeriod> {
   const prev = prevPeriod(fromYm, toYm);
   return periodFinance(prev.fromYm, prev.toYm, opts);
 }
 
-export async function financeSeries(n: number, refYm: string, opts: FinanceFilterOpts = {}): Promise<MonthFinance[]> {
+export async function financeSeries(n: number, refYm: string, opts: FinanceFilterOpts): Promise<MonthFinance[]> {
   return Promise.all(lastMonths(n, refYm).map((ym) => periodFinance(ym, ym, opts)));
 }
 
@@ -160,8 +167,8 @@ export function pctChange(current: number, previous: number): number | null {
   return ((current - previous) / Math.abs(previous)) * 100;
 }
 
-export async function monthWithPrev(ym: string): Promise<{ atual: MonthFinance; anterior: MonthFinance }> {
-  const [atual, anterior] = await Promise.all([monthFinance(ym), monthFinance(prevYm(ym))]);
+export async function monthWithPrev(ym: string, companyId: string): Promise<{ atual: MonthFinance; anterior: MonthFinance }> {
+  const [atual, anterior] = await Promise.all([monthFinance(ym, companyId), monthFinance(prevYm(ym), companyId)]);
   return { atual, anterior };
 }
 
@@ -169,29 +176,29 @@ export async function monthWithPrev(ym: string): Promise<{ atual: MonthFinance; 
  * Margem de contribuição média por produto (aba Configurações → Produtos):
  *   (Preço Venda − Preço Custo) / Preço Venda, média simples entre produtos ativos.
  */
-export async function contributionMarginAvg(): Promise<{ avg: number | null; count: number }> {
-  const products = await prisma.product.findMany({ where: { active: true, salePrice: { gt: 0 } } });
+export async function contributionMarginAvg(companyId: string): Promise<{ avg: number | null; count: number }> {
+  const products = await prisma.product.findMany({ where: { companyId, active: true, salePrice: { gt: 0 } } });
   if (products.length === 0) return { avg: null, count: 0 };
   const sum = products.reduce((acc, p) => acc + (p.salePrice - p.costPrice) / p.salePrice, 0);
   return { avg: (sum / products.length) * 100, count: products.length };
 }
 
-export async function newClientsIn(ym: string): Promise<number> {
+export async function newClientsIn(ym: string, companyId: string): Promise<number> {
   const r = monthRange(ym);
-  return prisma.client.count({ where: { createdAt: { gte: r.start, lt: r.end } } });
+  return prisma.client.count({ where: { companyId, createdAt: { gte: r.start, lt: r.end } } });
 }
 
-export async function newClientsInRange(fromYm: string, toYm: string): Promise<number> {
+export async function newClientsInRange(fromYm: string, toYm: string, companyId: string): Promise<number> {
   const r = spanRange(fromYm, toYm);
-  return prisma.client.count({ where: { createdAt: { gte: r.start, lt: r.end } } });
+  return prisma.client.count({ where: { companyId, createdAt: { gte: r.start, lt: r.end } } });
 }
 
-export async function salesSummary(ym: string): Promise<{ total: number; count: number; ticket: number | null }> {
+export async function salesSummary(ym: string, companyId: string): Promise<{ total: number; count: number; ticket: number | null }> {
   const r = monthRange(ym);
   const agg = await prisma.sale.aggregate({
     _sum: { amount: true },
     _count: { id: true },
-    where: { date: { gte: r.start, lt: r.end } },
+    where: { companyId, date: { gte: r.start, lt: r.end } },
   });
   const total = agg._sum.amount ?? 0;
   const count = agg._count.id;
@@ -202,16 +209,17 @@ export async function salesSummary(ym: string): Promise<{ total: number; count: 
  * Inadimplência (12 meses móveis): valor vencido e não pago ÷ valor total
  * com vencimento no período (excluindo canceladas), em %.
  */
-export async function inadimplencia(refDate = new Date()): Promise<number | null> {
+export async function inadimplencia(companyId: string, refDate = new Date()): Promise<number | null> {
   const start = new Date(Date.UTC(refDate.getUTCFullYear() - 1, refDate.getUTCMonth(), 1));
   const [totalAgg, overdueAgg] = await Promise.all([
     prisma.receivable.aggregate({
       _sum: { amount: true },
-      where: { dueDate: { gte: start, lt: refDate }, status: { not: 'CANCELADA' } },
+      where: { companyId, dueDate: { gte: start, lt: refDate }, status: { not: 'CANCELADA' } },
     }),
     prisma.receivable.aggregate({
       _sum: { amount: true },
       where: {
+        companyId,
         dueDate: { gte: start, lt: refDate },
         status: { notIn: ['PAGA', 'CANCELADA'] },
       },
@@ -231,18 +239,18 @@ export async function inadimplencia(refDate = new Date()): Promise<number | null
 export async function inadimplenciaPeriod(
   fromYm: string,
   toYm: string,
-  opts: FinanceFilterOpts = {}
+  opts: FinanceFilterOpts
 ): Promise<number | null> {
   const r = spanRange(fromYm, toYm);
   const clientWhere = opts.clientId ? { clientId: opts.clientId } : {};
   const [totalAgg, overdueAgg] = await Promise.all([
     prisma.receivable.aggregate({
       _sum: { amount: true },
-      where: { dueDate: { gte: r.start, lt: r.end }, status: { not: 'CANCELADA' }, ...clientWhere },
+      where: { companyId: opts.companyId, dueDate: { gte: r.start, lt: r.end }, status: { not: 'CANCELADA' }, ...clientWhere },
     }),
     prisma.receivable.aggregate({
       _sum: { amount: true },
-      where: { dueDate: { gte: r.start, lt: r.end }, status: { notIn: ['PAGA', 'CANCELADA'] }, ...clientWhere },
+      where: { companyId: opts.companyId, dueDate: { gte: r.start, lt: r.end }, status: { notIn: ['PAGA', 'CANCELADA'] }, ...clientWhere },
     }),
   ]);
   const total = totalAgg._sum.amount ?? 0;
@@ -251,9 +259,9 @@ export async function inadimplenciaPeriod(
 }
 
 /** Meta configurada: específica do mês ("2026-07") ou padrão ("default"). */
-export async function goalFor(metricKey: string, ym: string): Promise<number | null> {
+export async function goalFor(metricKey: string, ym: string, companyId: string): Promise<number | null> {
   const rows = await prisma.goal.findMany({
-    where: { metricKey, period: { in: [ym, GOAL_DEFAULT_PERIOD] } },
+    where: { companyId, metricKey, period: { in: [ym, GOAL_DEFAULT_PERIOD] } },
   });
   const specific = rows.find((g) => g.period === ym);
   const def = rows.find((g) => g.period === GOAL_DEFAULT_PERIOD);
@@ -280,8 +288,8 @@ export function waterfallFromFinance(f: MonthFinance): WaterfallStep[] {
 }
 
 /** Waterfall "Resultado do período" (Executivo). */
-export async function waterfall(ym: string): Promise<WaterfallStep[]> {
-  return waterfallFromFinance(await monthFinance(ym));
+export async function waterfall(ym: string, companyId: string): Promise<WaterfallStep[]> {
+  return waterfallFromFinance(await monthFinance(ym, companyId));
 }
 
 /**
@@ -289,7 +297,8 @@ export async function waterfall(ym: string): Promise<WaterfallStep[]> {
  * anteriores (com pelo menos 2 meses de histórico). Usado nos Insights.
  */
 export async function expenseAnomaly(
-  ym: string
+  ym: string,
+  companyId: string
 ): Promise<{ category: string; value: number; avg: number } | null> {
   const r = monthRange(ym);
   const histStart = monthRange(lastMonths(7, ym)[0]).start;
@@ -297,13 +306,13 @@ export async function expenseAnomaly(
     prisma.expense.groupBy({
       by: ['category'],
       _sum: { amount: true },
-      where: { date: { gte: r.start, lt: r.end } },
+      where: { companyId, date: { gte: r.start, lt: r.end } },
     }),
     prisma.expense.groupBy({
       by: ['category'],
       _count: { id: true },
       _sum: { amount: true },
-      where: { date: { gte: histStart, lt: r.start } },
+      where: { companyId, date: { gte: histStart, lt: r.start } },
     }),
   ]);
   let worst: { category: string; value: number; avg: number; ratio: number } | null = null;
