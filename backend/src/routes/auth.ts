@@ -3,7 +3,7 @@ import { prisma } from '../db.js';
 import { ah, HttpError, requireString } from '../lib/http.js';
 import { requireAuth } from '../lib/auth-middleware.js';
 import { AUTH_COOKIE_NAME, hashPassword, signToken, verifyPassword } from '../services/auth.js';
-import { lookupCnpj } from '../services/cnpjLookup.js';
+import { isValidCnpjFormat, lookupCnpj } from '../services/cnpjLookup.js';
 import { ACCOUNT_TYPES } from '../lib/constants.js';
 
 export const authRouter = Router();
@@ -54,15 +54,21 @@ authRouter.post(
     const accountType = req.body.accountType ? String(req.body.accountType) : 'EXTERNO';
     if (!ACCOUNT_TYPES.includes(accountType as any))
       throw new HttpError(400, `accountType deve ser um de: ${ACCOUNT_TYPES.join(', ')}`);
+    const cnpj = requireString(req.body.cnpj, 'cnpj').replace(/\D/g, '');
+    if (!isValidCnpjFormat(cnpj)) throw new HttpError(400, 'CNPJ inválido — precisa ter 14 dígitos');
 
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) throw new HttpError(409, 'Já existe uma conta com este e-mail');
+    const [existingUser, existingCompany] = await Promise.all([
+      prisma.user.findUnique({ where: { email } }),
+      prisma.company.findUnique({ where: { cnpj } }),
+    ]);
+    if (existingUser) throw new HttpError(409, 'Já existe uma conta com este e-mail');
+    if (existingCompany) throw new HttpError(409, 'Já existe uma empresa cadastrada com este CNPJ');
 
     const passwordHash = await hashPassword(password);
 
     const { company, user } = await prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
-        data: { name: companyName, accountType, cnpj: req.body.cnpj ? String(req.body.cnpj) : null },
+        data: { name: companyName, accountType, cnpj },
       });
       const user = await tx.user.create({
         data: { companyId: company.id, name, email, passwordHash },
@@ -80,15 +86,31 @@ authRouter.post(
   })
 );
 
+/**
+ * POST /api/auth/login — aceita `identifier` como e-mail OU CNPJ (detectado
+ * pelo formato: contém "@" → e-mail; senão, dígitos → CNPJ da empresa).
+ * Login por CNPJ busca a empresa e usa o primeiro usuário dela (v1: 1
+ * usuário por empresa, criado no cadastro).
+ */
 authRouter.post(
   '/login',
   ah(async (req, res) => {
-    const email = requireString(req.body.email, 'email').toLowerCase();
+    const identifier = requireString(req.body.identifier, 'identifier');
     const password = requireString(req.body.password, 'password');
 
-    const user = await prisma.user.findUnique({ where: { email }, include: { company: true } });
+    let user;
+    if (identifier.includes('@')) {
+      user = await prisma.user.findUnique({ where: { email: identifier.toLowerCase() }, include: { company: true } });
+    } else {
+      const cnpj = identifier.replace(/\D/g, '');
+      const company = await prisma.company.findUnique({ where: { cnpj } });
+      user = company
+        ? await prisma.user.findFirst({ where: { companyId: company.id }, include: { company: true } })
+        : null;
+    }
+
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
-      throw new HttpError(401, 'E-mail ou senha inválidos');
+      throw new HttpError(401, 'Credenciais inválidas');
     }
 
     const token = signToken({ companyId: user.companyId, userId: user.id });

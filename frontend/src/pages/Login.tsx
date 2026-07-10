@@ -7,7 +7,7 @@ import { Button, Field, TextInput } from '../components/ui';
 export function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -17,7 +17,7 @@ export function Login() {
     setError(null);
     setLoading(true);
     try {
-      await login(email, password);
+      await login(identifier, password);
       navigate('/', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não foi possível entrar. Tente novamente.');
@@ -43,8 +43,15 @@ export function Login() {
         <p className="mb-5 text-xs text-mut">Acesse o dashboard da sua empresa.</p>
 
         <form onSubmit={onSubmit} className="space-y-3">
-          <Field label="E-mail">
-            <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+          <Field label="E-mail ou CNPJ">
+            <TextInput
+              type="text"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="voce@empresa.com ou 00.000.000/0000-00"
+              required
+              autoFocus
+            />
           </Field>
           <Field label="Senha">
             <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
@@ -52,7 +59,7 @@ export function Login() {
 
           {error && <p className="text-xs text-neg">{error}</p>}
 
-          <Button type="submit" disabled={loading || !email || !password} className="flex w-full justify-center">
+          <Button type="submit" disabled={loading || !identifier || !password} className="flex w-full justify-center">
             {loading ? 'Entrando…' : 'Entrar'}
           </Button>
         </form>

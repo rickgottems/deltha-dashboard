@@ -23,8 +23,8 @@ interface AuthContextValue {
   user: AuthUser | null;
   company: AuthCompany | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (data: { companyName: string; name: string; email: string; password: string; accountType: string; cnpj?: string }) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
+  register: (data: { companyName: string; name: string; email: string; password: string; accountType: string; cnpj: string }) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -48,14 +48,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const d = await api.post<AuthResponse>('/api/auth/login', { email, password });
+  const login = useCallback(async (identifier: string, password: string) => {
+    const d = await api.post<AuthResponse>('/api/auth/login', { identifier, password });
     setUser(d.user);
     setCompany(d.company);
   }, []);
 
   const register = useCallback(
-    async (data: { companyName: string; name: string; email: string; password: string; accountType: string; cnpj?: string }) => {
+    async (data: { companyName: string; name: string; email: string; password: string; accountType: string; cnpj: string }) => {
       const d = await api.post<AuthResponse>('/api/auth/register', data);
       setUser(d.user);
       setCompany(d.company);

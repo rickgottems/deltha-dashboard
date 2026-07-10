@@ -23,7 +23,11 @@ datasource db {
 model Company {
   id          String   @id @default(cuid())
   name        String
-  cnpj        String?
+  // Único quando presente (Postgres permite múltiplos NULL numa coluna @unique
+  // — por isso continua nullable no schema mesmo sendo obrigatório na API de
+  // cadastro, ver routes/auth.ts: assim uma mudança de regra de negócio não
+  // exige migration destrutiva). Guardado só como dígitos (sem máscara).
+  cnpj        String?  @unique
   // DELTHA_CLIENT | EXTERNO (ver src/lib/constants.ts) — Fase B ativa o uso real disso na UI
   accountType String   @default("EXTERNO")
   createdAt   DateTime @default(now()) @map("created_at")

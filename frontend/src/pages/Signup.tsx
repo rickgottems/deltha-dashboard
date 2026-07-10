@@ -65,7 +65,7 @@ export function Signup() {
     setError(null);
     setLoading(true);
     try {
-      await register({ companyName, name, email, password, accountType, cnpj: digits || undefined });
+      await register({ companyName, name, email, password, accountType, cnpj: digits });
       navigate('/', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não foi possível cadastrar. Tente novamente.');
@@ -91,7 +91,7 @@ export function Signup() {
         <p className="mb-5 text-xs text-mut">Crie sua conta para começar a usar o dashboard.</p>
 
         <form onSubmit={onSubmit} className="space-y-3">
-          <Field label="CNPJ (opcional)">
+          <Field label="CNPJ">
             <div className="flex gap-2">
               <TextInput
                 value={cnpj}
@@ -102,6 +102,7 @@ export function Signup() {
                 }}
                 placeholder="00.000.000/0000-00"
                 inputMode="numeric"
+                required
               />
               <Button
                 type="button"
@@ -175,7 +176,7 @@ export function Signup() {
 
           <Button
             type="submit"
-            disabled={loading || !companyName || !name || !email || password.length < 8}
+            disabled={loading || digits.length !== 14 || !companyName || !name || !email || password.length < 8}
             className="flex w-full justify-center"
           >
             {loading ? 'Criando conta…' : 'Criar conta'}
