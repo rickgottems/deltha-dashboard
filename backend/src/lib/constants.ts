@@ -41,7 +41,7 @@ export const THRESHOLD_DIRECTIONS = ['BELOW', 'ABOVE'] as const;
 export interface MetricDef {
   key: string;
   label: string;
-  unit: '%' | 'R$';
+  unit: '%' | 'R$' | 'x' | 'meses';
   defaultDirection: 'BELOW' | 'ABOVE';
   scope: 'executivo' | 'financeiro' | 'ambos';
   description: string;
@@ -103,6 +103,55 @@ export const ALERT_METRICS: MetricDef[] = [
     defaultDirection: 'BELOW',
     scope: 'executivo',
     description: 'Receita do mês ÷ meta de receita (Configurações → Metas)',
+  },
+  // ---- Saúde Financeira (Balanço Patrimonial + DFC) — ver services/healthScore.ts ----
+  {
+    key: 'liquidez_seca',
+    label: 'Liquidez Seca',
+    unit: 'x',
+    defaultDirection: 'BELOW',
+    scope: 'financeiro',
+    description: '(Ativo Circulante − Estoques) ÷ Passivo Circulante',
+  },
+  {
+    key: 'liquidez_corrente',
+    label: 'Liquidez Corrente',
+    unit: 'x',
+    defaultDirection: 'BELOW',
+    scope: 'financeiro',
+    description: 'Ativo Circulante ÷ Passivo Circulante',
+  },
+  {
+    key: 'alavancagem_ebitda',
+    label: 'Alavancagem (Dívida Líquida ÷ EBITDA)',
+    unit: 'x',
+    defaultDirection: 'ABOVE',
+    scope: 'financeiro',
+    description: '(Dívida Curto + Longo Prazo − Caixa) ÷ EBITDA do mês',
+  },
+  {
+    key: 'cobertura_juros_bp',
+    label: 'Cobertura de Juros',
+    unit: 'x',
+    defaultDirection: 'BELOW',
+    scope: 'financeiro',
+    description: 'EBIT ÷ despesas financeiras do mês (usado junto com Alavancagem no alerta de Insolvência)',
+  },
+  {
+    key: 'capex_sobre_lucro',
+    label: 'CAPEX ÷ Lucro Líquido',
+    unit: '%',
+    defaultDirection: 'ABOVE',
+    scope: 'financeiro',
+    description: 'Investimento em ativo imobilizado do mês ÷ Lucro Líquido do mês',
+  },
+  {
+    key: 'runway_meses',
+    label: 'Runway de Caixa',
+    unit: 'meses',
+    defaultDirection: 'BELOW',
+    scope: 'financeiro',
+    description: 'Caixa e Equivalentes ÷ queima mensal de caixa (quando o fluxo livre é negativo)',
   },
 ];
 

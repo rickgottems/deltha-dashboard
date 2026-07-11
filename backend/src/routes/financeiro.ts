@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { ah } from '../lib/http.js';
-import { currentYm, isValidYm, prevPeriod } from '../lib/period.js';
+import { currentYm, isValidYm, lastMonths, prevPeriod } from '../lib/period.js';
 import {
+  clientesAtivosNoMes,
+  contasAReceberEmAberto,
   contributionMarginAvg,
   financeSeries,
   inadimplenciaPeriod,
@@ -10,7 +12,8 @@ import {
   periodFinance,
 } from '../services/finance.js';
 import { evaluateAlerts } from '../services/alerts.js';
-import { evaluateHealthScore } from '../services/healthScore.js';
+import { evaluateDreAlerts } from '../services/dreAlerts.js';
+import { evaluateHealthScore, type CashFlowInput } from '../services/healthScore.js';
 
 export const financeiroRouter = Router();
 
@@ -43,23 +46,67 @@ financeiroRouter.get(
     const companyId = req.companyId!;
     const opts = { companyId, ...(clientId ? { clientId } : {}) };
     const prev = prevPeriod(fromYm, toYm);
+    const cfHistoryMonths = lastMonths(3, toYm); // [dois_atras, anterior, atual] cronológico
 
-    const [atual, anterior, series12, alerts, contrib, inadAtual, inadAnterior, balanceSheet, cashFlow] =
-      await Promise.all([
-        periodFinance(fromYm, toYm, opts),
-        periodFinance(prev.fromYm, prev.toYm, opts),
-        financeSeries(12, toYm, opts),
-        evaluateAlerts(toYm, 'financeiro', companyId),
-        contributionMarginAvg(companyId),
-        inadimplenciaPeriod(fromYm, toYm, opts),
-        inadimplenciaPeriod(prev.fromYm, prev.toYm, opts),
-        prisma.balanceSheet.findUnique({ where: { companyId_period: { companyId, period: toYm } } }),
-        prisma.cashFlowStatement.findUnique({ where: { companyId_period: { companyId, period: toYm } } }),
-      ]);
+    const [
+      atual,
+      anterior,
+      series12,
+      alerts,
+      dreAlerts,
+      contrib,
+      inadAtual,
+      inadAnterior,
+      balanceSheet,
+      balanceSheetAnterior,
+      cashFlow,
+      cfHistoryRows,
+      contasReceberAtual,
+      contasReceberAnterior,
+      clientesAtivosAtual,
+      clientesAtivosAnterior,
+    ] = await Promise.all([
+      periodFinance(fromYm, toYm, opts),
+      periodFinance(prev.fromYm, prev.toYm, opts),
+      financeSeries(12, toYm, opts),
+      evaluateAlerts(toYm, 'financeiro', companyId),
+      evaluateDreAlerts(fromYm, toYm, opts),
+      contributionMarginAvg(companyId),
+      inadimplenciaPeriod(fromYm, toYm, opts),
+      inadimplenciaPeriod(prev.fromYm, prev.toYm, opts),
+      prisma.balanceSheet.findUnique({ where: { companyId_period: { companyId, period: toYm } } }),
+      prisma.balanceSheet.findUnique({ where: { companyId_period: { companyId, period: prev.toYm } } }),
+      prisma.cashFlowStatement.findUnique({ where: { companyId_period: { companyId, period: toYm } } }),
+      Promise.all(
+        cfHistoryMonths.map((m) => prisma.cashFlowStatement.findUnique({ where: { companyId_period: { companyId, period: m } } }))
+      ),
+      contasAReceberEmAberto(toYm, companyId),
+      contasAReceberEmAberto(prev.toYm, companyId),
+      clientesAtivosNoMes(toYm, companyId),
+      clientesAtivosNoMes(prev.toYm, companyId),
+    ]);
+
+    // Só entra no histórico de 3 períodos (regra F4) se TODOS os 3 meses tiverem DFC lançado.
+    const cfHistory: CashFlowInput[] = cfHistoryRows.every((r) => r !== null)
+      ? (cfHistoryRows as NonNullable<(typeof cfHistoryRows)[number]>[])
+      : [];
 
     // Saúde financeira (Balanço/DFC) sempre ancorada no último mês do período
     // (toYm) — mesmo critério já usado para insights/alertas na Fase 1.
-    const saudeFinanceira = evaluateHealthScore(atual, balanceSheet, cashFlow);
+    const saudeFinanceira = await evaluateHealthScore({
+      companyId,
+      atual,
+      anterior,
+      bs: balanceSheet,
+      bsAnterior: balanceSheetAnterior,
+      cf: cashFlow,
+      cfHistory,
+      contasReceberAtual,
+      contasReceberAnterior,
+      clientesAtivosAtual,
+      clientesAtivosAnterior,
+      dreAlertKeys: new Set(dreAlerts.map((a) => a.metricKey)),
+    });
 
     res.json({
       fromYm,
@@ -77,9 +124,6 @@ financeiroRouter.get(
               ? atual.margemLiquida - anterior.margemLiquida
               : null,
         },
-        // Fase 2 — 3 indicadores adicionais (Runway de Caixa e CAC ficaram de
-        // fora: não há dado limpo de saldo de caixa nem de investimento em
-        // aquisição no schema atual — ver auditoria).
         margemContribuicao: { value: contrib.avg, produtos: contrib.count },
         inadimplencia: {
           value: inadAtual,
@@ -95,6 +139,7 @@ financeiroRouter.get(
       lucroSerie: series12.map((f) => ({ label: f.label, lucro: f.lucroLiquido })),
       fluxoCaixa: series12.map((f) => ({ label: f.label, valor: f.fluxoCaixa })),
       alerts,
+      dreAlerts,
       saudeFinanceira,
       hasData: series12.some((f) => f.receitaBruta > 0 || f.despesasTotais > 0),
     });

@@ -200,6 +200,35 @@ export async function newClientsInRange(fromYm: string, toYm: string, companyId:
   return prisma.client.count({ where: { companyId, createdAt: { gte: r.start, lt: r.end } } });
 }
 
+/**
+ * Contas a Receber EM ABERTO ao final do período (proxy da linha "Contas a
+ * Receber" do Balanço — schema não tem esse saldo como campo próprio):
+ * soma de receivables com vencimento até o fim do período e status
+ * PENDENTE/ATRASADA (não pagas, não canceladas). Usado na regra B4 de
+ * services/healthScore.ts.
+ */
+export async function contasAReceberEmAberto(ym: string, companyId: string): Promise<number> {
+  const r = monthRange(ym);
+  const agg = await prisma.receivable.aggregate({
+    _sum: { amount: true },
+    where: { companyId, dueDate: { lt: r.end }, status: { in: ['PENDENTE', 'ATRASADA'] } },
+  });
+  return agg._sum.amount ?? 0;
+}
+
+/** Clientes com pelo menos 1 venda ou 1 receita no mês (mesmo critério de "clientes ativos" da aba Vendas). */
+export async function clientesAtivosNoMes(ym: string, companyId: string): Promise<number> {
+  const r = monthRange(ym);
+  const [vendas, receitas] = await Promise.all([
+    prisma.sale.findMany({ where: { companyId, date: { gte: r.start, lt: r.end }, clientId: { not: null } }, select: { clientId: true } }),
+    prisma.receivable.findMany({ where: { companyId, dueDate: { gte: r.start, lt: r.end }, clientId: { not: null } }, select: { clientId: true } }),
+  ]);
+  const ids = new Set<string>();
+  for (const v of vendas) if (v.clientId) ids.add(v.clientId);
+  for (const rcv of receitas) if (rcv.clientId) ids.add(rcv.clientId);
+  return ids.size;
+}
+
 export async function salesSummary(ym: string, companyId: string): Promise<{ total: number; count: number; ticket: number | null }> {
   const r = monthRange(ym);
   const agg = await prisma.sale.aggregate({

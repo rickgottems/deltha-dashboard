@@ -19,7 +19,12 @@ export interface Alert {
   message: string;
 }
 
-function classify(
+/**
+ * Classificação genérica valor×limiar×direção — reaproveitada por
+ * services/healthScore.ts para as regras de Balanço/DFC (mesmo motor,
+ * mesma tabela alert_thresholds, ver deltha-motor-regras-financeiras na memória).
+ */
+export function classify(
   value: number,
   yellow: number,
   red: number,
@@ -36,10 +41,11 @@ function classify(
   return 'confortavel';
 }
 
-function fmt(value: number, unit: string): string {
+export function fmt(value: number, unit: string): string {
   if (unit === 'R$')
     return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
-  return `${value.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}${unit}`;
+  const spaced = unit === '%' || unit === 'x' ? '' : ' ';
+  return `${value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}${spaced}${unit}`;
 }
 
 /** Calcula o valor atual de cada métrica com regra cadastrada e classifica. */

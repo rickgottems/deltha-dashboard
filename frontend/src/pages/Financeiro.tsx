@@ -31,12 +31,15 @@ interface FinanceiroData {
       margemEbit: number | null;
       coberturaJuros: number | null;
       liquidezSeca: number | null;
+      liquidezCorrente: number | null;
       alavancagemDividaEbitda: number | null;
       giroAtivos: number | null;
       runwayMeses: number | null;
       fcoVsLucro: number | null;
+      capexSobreLucro: number | null;
     };
     alerts: AlertItem[];
+    compositeAlerts: AlertItem[];
     hasBalanceSheet: boolean;
     hasCashFlow: boolean;
   };
@@ -227,6 +230,11 @@ export function Financeiro() {
                       fmt: (v: number) => v.toFixed(2),
                     },
                     {
+                      label: 'Liquidez Corrente',
+                      value: data.saudeFinanceira.metrics.liquidezCorrente,
+                      fmt: (v: number) => v.toFixed(2),
+                    },
+                    {
                       label: 'Alavancagem Dív/EBITDA',
                       value: data.saudeFinanceira.metrics.alavancagemDividaEbitda,
                       fmt: (v: number) => `${v.toFixed(2)}x`,
@@ -235,6 +243,11 @@ export function Financeiro() {
                       label: 'Giro de Ativos',
                       value: data.saudeFinanceira.metrics.giroAtivos,
                       fmt: (v: number) => v.toFixed(2),
+                    },
+                    {
+                      label: 'CAPEX ÷ Lucro',
+                      value: data.saudeFinanceira.metrics.capexSobreLucro,
+                      fmt: (v: number) => fmtPct(v),
                     },
                   ].map((m) => (
                     <div key={m.label} className="rounded-lg border border-line bg-panel2/40 px-3 py-2.5">
@@ -263,6 +276,10 @@ export function Financeiro() {
               title="Sinais de Alerta — Balanço & DFC"
               configLink={false}
             />
+          )}
+
+          {data.saudeFinanceira.compositeAlerts.length > 0 && (
+            <AlertsPanel alerts={data.saudeFinanceira.compositeAlerts} title="Diagnósticos Compostos" configLink={false} />
           )}
         </div>
       )}

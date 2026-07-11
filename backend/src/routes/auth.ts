@@ -26,6 +26,13 @@ const DEFAULT_THRESHOLDS = [
   { metricKey: 'inadimplencia', label: 'Inadimplência', unit: '%', yellowThreshold: 3, redThreshold: 7, direction: 'ABOVE', scope: 'ambos' },
   { metricKey: 'comprometimento_receita', label: 'Despesas ÷ Receita', unit: '%', yellowThreshold: 80, redThreshold: 95, direction: 'ABOVE', scope: 'financeiro' },
   { metricKey: 'margem_contribuicao', label: 'Margem de Contribuição', unit: '%', yellowThreshold: 30, redThreshold: 15, direction: 'BELOW', scope: 'financeiro' },
+  // Saúde Financeira (Balanço/DFC) — só avaliam quando a empresa lança esses dados (Configurações → Balanço & DFC)
+  { metricKey: 'liquidez_seca', label: 'Liquidez Seca', unit: 'x', yellowThreshold: 1.0, redThreshold: 0.3, direction: 'BELOW', scope: 'financeiro' },
+  { metricKey: 'liquidez_corrente', label: 'Liquidez Corrente', unit: 'x', yellowThreshold: 1.2, redThreshold: 1.0, direction: 'BELOW', scope: 'financeiro' },
+  { metricKey: 'alavancagem_ebitda', label: 'Alavancagem (Dívida Líquida ÷ EBITDA)', unit: 'x', yellowThreshold: 3.0, redThreshold: 3.5, direction: 'ABOVE', scope: 'financeiro' },
+  { metricKey: 'cobertura_juros_bp', label: 'Cobertura de Juros', unit: 'x', yellowThreshold: 2.0, redThreshold: 1.5, direction: 'BELOW', scope: 'financeiro' },
+  { metricKey: 'capex_sobre_lucro', label: 'CAPEX ÷ Lucro Líquido', unit: '%', yellowThreshold: 30, redThreshold: 40, direction: 'ABOVE', scope: 'financeiro' },
+  { metricKey: 'runway_meses', label: 'Runway de Caixa', unit: 'meses', yellowThreshold: 12, redThreshold: 8, direction: 'BELOW', scope: 'financeiro' },
 ];
 
 /**
