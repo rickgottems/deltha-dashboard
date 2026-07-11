@@ -26,6 +26,7 @@
 import { prisma } from '../db.js';
 import { GOAL_DEFAULT_PERIOD } from '../lib/constants.js';
 import { lastMonths, monthRange, prevPeriod, prevYm, spanLabel, spanRange, ymLabel, type Range } from '../lib/period.js';
+import { round2, safeDivide } from '../lib/mathUtils.js';
 
 export interface MonthFinance {
   ym: string;
@@ -147,8 +148,8 @@ export async function periodFinance(fromYm: string, toYm: string, opts: FinanceF
     lucroLiquido,
     ebitda,
     ebit,
-    margemEbitda: receitaLiquida > 0 ? (ebitda / receitaLiquida) * 100 : null,
-    margemLiquida: receitaLiquida > 0 ? (lucroLiquido / receitaLiquida) * 100 : null,
+    margemEbitda: safeDivide(ebitda * 100, receitaLiquida),
+    margemLiquida: safeDivide(lucroLiquido * 100, receitaLiquida),
     fluxoCaixa: recebimentos - despesasTotais,
     recebimentos,
   };
@@ -170,8 +171,7 @@ export async function financeSeries(n: number, refYm: string, opts: FinanceFilte
 
 /** Variação percentual (null quando base é 0 — evita divisões absurdas). */
 export function pctChange(current: number, previous: number): number | null {
-  if (previous === 0) return null;
-  return ((current - previous) / Math.abs(previous)) * 100;
+  return safeDivide((current - previous) * 100, Math.abs(previous));
 }
 
 export async function monthWithPrev(ym: string, companyId: string): Promise<{ atual: MonthFinance; anterior: MonthFinance }> {
@@ -187,7 +187,7 @@ export async function contributionMarginAvg(companyId: string): Promise<{ avg: n
   const products = await prisma.product.findMany({ where: { companyId, active: true, salePrice: { gt: 0 } } });
   if (products.length === 0) return { avg: null, count: 0 };
   const sum = products.reduce((acc, p) => acc + (p.salePrice - p.costPrice) / p.salePrice, 0);
-  return { avg: (sum / products.length) * 100, count: products.length };
+  return { avg: round2((sum / products.length) * 100), count: products.length };
 }
 
 export async function newClientsIn(ym: string, companyId: string): Promise<number> {
@@ -238,7 +238,7 @@ export async function salesSummary(ym: string, companyId: string): Promise<{ tot
   });
   const total = agg._sum.amount ?? 0;
   const count = agg._count.id;
-  return { total, count, ticket: count > 0 ? total / count : null };
+  return { total, count, ticket: safeDivide(total, count) };
 }
 
 /**
@@ -262,8 +262,7 @@ export async function inadimplencia(companyId: string, refDate = new Date()): Pr
     }),
   ]);
   const total = totalAgg._sum.amount ?? 0;
-  if (total === 0) return null;
-  return ((overdueAgg._sum.amount ?? 0) / total) * 100;
+  return safeDivide((overdueAgg._sum.amount ?? 0) * 100, total);
 }
 
 /**
@@ -290,8 +289,7 @@ export async function inadimplenciaPeriod(
     }),
   ]);
   const total = totalAgg._sum.amount ?? 0;
-  if (total === 0) return null;
-  return ((overdueAgg._sum.amount ?? 0) / total) * 100;
+  return safeDivide((overdueAgg._sum.amount ?? 0) * 100, total);
 }
 
 /** Meta configurada: específica do mês ("2026-07") ou padrão ("default"). */

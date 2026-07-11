@@ -18,6 +18,7 @@
 
 import { pctChange, periodFinance, prevPeriodFinance, type FinanceFilterOpts } from './finance.js';
 import type { AlertLevel } from './alerts.js';
+import { safeDivide } from '../lib/mathUtils.js';
 
 export interface DreAlert {
   metricKey: string;
@@ -49,7 +50,7 @@ export async function evaluateDreAlerts(
   const alerts: DreAlert[] = [];
 
   // 1. Margem Bruta < 10%  (Receita Líquida − Custos) ÷ Receita Líquida
-  const margemBruta = atual.receitaLiquida > 0 ? ((atual.receitaLiquida - atual.custos) / atual.receitaLiquida) * 100 : null;
+  const margemBruta = safeDivide((atual.receitaLiquida - atual.custos) * 100, atual.receitaLiquida);
   if (margemBruta !== null && margemBruta < DRE_RULE_THRESHOLDS.margemBrutaMin) {
     alerts.push({
       metricKey: 'dre_margem_bruta',
@@ -125,7 +126,7 @@ export async function evaluateDreAlerts(
   // Usa EBIT (lucro ANTES do resultado financeiro), não Lucro Operacional (que já desconta
   // financeiras) — dividir um valor pós-juros por juros de novo subestimaria a cobertura real.
   if (atual.financeiras > 0) {
-    const coberturaJuros = atual.ebit / atual.financeiras;
+    const coberturaJuros = safeDivide(atual.ebit, atual.financeiras)!;
     if (coberturaJuros < DRE_RULE_THRESHOLDS.coberturaJurosMin) {
       alerts.push({
         metricKey: 'dre_cobertura_juros',

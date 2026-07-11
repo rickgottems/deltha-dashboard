@@ -22,6 +22,7 @@
 import { prisma } from '../db.js';
 import type { MonthFinance } from './finance.js';
 import { classify, fmt, type AlertLevel } from './alerts.js';
+import { round2, safeDivide } from '../lib/mathUtils.js';
 
 export interface BalanceSheetInput {
   currentAssets: number;
@@ -97,9 +98,24 @@ const ASSET_EQUATION_TOLERANCE = 0.01;
  * a dívida total na Alavancagem.
  */
 export function validateBalanceSheet(bs: BalanceSheetInput): string | null {
-  const ativoTotal = bs.currentAssets + bs.nonCurrentAssets;
+  // Fail-fast: essas linhas do balanço nunca são negativas na contabilidade real
+  // (dívida/PL podem, teoricamente, ser negativos numa empresa insolvente — por
+  // isso não entram nesta checagem). Pego cedo aqui evita que um erro de
+  // digitação vire um índice sem sentido (ex.: liquidez negativa "boa").
+  const naoNegativos: [string, number][] = [
+    ['Ativo Circulante', bs.currentAssets],
+    ['Estoques', bs.inventory],
+    ['Ativo Não Circulante', bs.nonCurrentAssets],
+    ['Passivo Circulante', bs.currentLiabilities],
+    ['Caixa e Equivalentes', bs.cashAndEquivalents],
+  ];
+  for (const [campo, valor] of naoNegativos) {
+    if (valor < 0) return `${campo} não pode ser negativo (recebido: ${valor}).`;
+  }
+
+  const ativoTotal = round2(bs.currentAssets + bs.nonCurrentAssets);
   const passivoTotal = bs.currentLiabilities + bs.longTermDebt;
-  const equacao = passivoTotal + bs.equity;
+  const equacao = round2(passivoTotal + bs.equity);
   if (Math.abs(ativoTotal - equacao) > ASSET_EQUATION_TOLERANCE) {
     return `Balanço não fecha: Ativo Total (${ativoTotal.toFixed(2)}) deveria ser igual a Passivo + Patrimônio Líquido (${equacao.toFixed(2)}).`;
   }
@@ -111,7 +127,7 @@ export function validateBalanceSheet(bs: BalanceSheetInput): string | null {
 
 function pctChangeLocal(atual: number, anterior: number): number | null {
   if (anterior === 0) return null;
-  return ((atual - anterior) / Math.abs(anterior)) * 100;
+  return round2(((atual - anterior) / Math.abs(anterior)) * 100);
 }
 
 export function computeExtendedMetrics(
@@ -119,22 +135,22 @@ export function computeExtendedMetrics(
   bs: BalanceSheetInput | null,
   cf: CashFlowInput | null
 ): ExtendedMetrics {
-  const margemEbit = mf.receitaLiquida > 0 ? (mf.ebit / mf.receitaLiquida) * 100 : null;
-  const coberturaJuros = mf.financeiras > 0 ? mf.ebit / mf.financeiras : null;
-  const capexSobreLucro = cf && mf.lucroLiquido > 0 ? (cf.capex / mf.lucroLiquido) * 100 : null;
+  const margemEbit = safeDivide(mf.ebit * 100, mf.receitaLiquida);
+  const coberturaJuros = safeDivide(mf.ebit, mf.financeiras);
+  const capexSobreLucro = cf && mf.lucroLiquido > 0 ? safeDivide(cf.capex * 100, mf.lucroLiquido) : null;
 
   let liquidezSeca: number | null = null;
   let liquidezCorrente: number | null = null;
   let alavancagemDividaEbitda: number | null = null;
   let giroAtivos: number | null = null;
   if (bs) {
-    liquidezSeca = bs.currentLiabilities > 0 ? (bs.currentAssets - bs.inventory) / bs.currentLiabilities : null;
-    liquidezCorrente = bs.currentLiabilities > 0 ? bs.currentAssets / bs.currentLiabilities : null;
+    liquidezSeca = safeDivide(bs.currentAssets - bs.inventory, bs.currentLiabilities);
+    liquidezCorrente = safeDivide(bs.currentAssets, bs.currentLiabilities);
     const ativoTotal = bs.currentAssets + bs.nonCurrentAssets;
-    giroAtivos = ativoTotal > 0 ? mf.receitaLiquida / ativoTotal : null;
+    giroAtivos = safeDivide(mf.receitaLiquida, ativoTotal);
     if (mf.ebitda > 0) {
       const dividaLiquida = bs.shortTermDebt + bs.longTermDebt - bs.cashAndEquivalents;
-      alavancagemDividaEbitda = dividaLiquida / mf.ebitda;
+      alavancagemDividaEbitda = safeDivide(dividaLiquida, mf.ebitda);
     }
   }
 
@@ -143,13 +159,13 @@ export function computeExtendedMetrics(
     const fluxoLivre = cf.operatingCashFlow - cf.capex;
     if (fluxoLivre < 0) {
       const queimaMensal = Math.abs(fluxoLivre);
-      runwayMeses = queimaMensal > 0 ? bs.cashAndEquivalents / queimaMensal : null;
+      runwayMeses = safeDivide(bs.cashAndEquivalents, queimaMensal);
     } else {
       runwayMeses = Infinity; // gera caixa: sem prazo de esgotamento
     }
   }
 
-  const fcoVsLucro = cf && mf.lucroLiquido !== 0 ? cf.operatingCashFlow / mf.lucroLiquido : null;
+  const fcoVsLucro = cf ? safeDivide(cf.operatingCashFlow, mf.lucroLiquido) : null;
 
   return {
     margemEbit,
@@ -305,7 +321,7 @@ function evaluateCompositeAlerts(input: HealthScoreInput, m: ExtendedMetrics, at
   // C1: giro de ativos caindo mesmo com receita subindo — crescimento não está convertendo em vendas.
   if (varReceita !== null && varReceita > 0 && bs && bsAnterior) {
     const ativoTotalAnterior = bsAnterior.currentAssets + bsAnterior.nonCurrentAssets;
-    const giroAnterior = ativoTotalAnterior > 0 ? anterior.receitaLiquida / ativoTotalAnterior : null;
+    const giroAnterior = safeDivide(anterior.receitaLiquida, ativoTotalAnterior);
     if (m.giroAtivos !== null && giroAnterior !== null && m.giroAtivos < giroAnterior) {
       composites.push({
         metricKey: 'hs_crescimento_inflado',
