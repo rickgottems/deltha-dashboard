@@ -24,6 +24,7 @@ const TABS = [
   { key: 'balanco', label: 'Balanço & DFC' },
   { key: 'equipe', label: 'Equipe & Vendedores' },
   { key: 'integracoes', label: 'Integrações' },
+  { key: 'api', label: 'API' },
   { key: 'usuarios', label: 'Usuários' },
 ];
 
@@ -55,6 +56,7 @@ export function Configuracoes() {
       {tab === 'balanco' && <BalancoTab />}
       {tab === 'equipe' && <EquipeTab />}
       {tab === 'integracoes' && <IntegracoesTab />}
+      {tab === 'api' && <ApiTab />}
       {tab === 'usuarios' && <UsuariosTab />}
     </>
   );
@@ -1081,6 +1083,140 @@ function DominioImportCard() {
         )}
       </Modal>
     </Card>
+  );
+}
+
+/* ---------------- API (chaves para integração externa) ---------------- */
+
+interface ApiKeyRow {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  lastUsedAt: string | null;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
+function ApiTab() {
+  const { data, loading, reload } = useFetch<ApiKeyRow[]>('/api/config/api-keys');
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [novaChave, setNovaChave] = useState<string | null>(null);
+  const [copiado, setCopiado] = useState(false);
+
+  const criar = async () => {
+    setSaving(true);
+    try {
+      const created = await api.post<{ rawKey: string }>('/api/config/api-keys', { name });
+      setNovaChave(created.rawKey);
+      setName('');
+      setOpen(false);
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const revogar = async (id: string) => {
+    await api.del(`/api/config/api-keys/${id}`);
+    reload();
+  };
+
+  const copiar = () => {
+    if (!novaChave) return;
+    navigator.clipboard.writeText(novaChave);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 1600);
+  };
+
+  const ativas = (data ?? []).filter((k) => !k.revokedAt);
+
+  return (
+    <div className="space-y-4">
+      <Card hover={false}>
+        <SectionTitle right={<Button onClick={() => setOpen(true)}>Nova chave</Button>}>Chaves de API</SectionTitle>
+        <p className="mb-3 text-xs leading-relaxed text-mut">
+          Para integrações externas (ex.: o robô do escritório que lê NF-e/planilhas e envia os dados
+          automaticamente) sem depender de login no navegador. Uma chave tem o mesmo acesso de um usuário logado
+          desta empresa — trate como uma senha.
+        </p>
+
+        {loading ? (
+          <Spinner />
+        ) : ativas.length === 0 ? (
+          <EmptyState title="Nenhuma chave criada" hint="Clique em “Nova chave” para gerar a primeira." />
+        ) : (
+          <Table columns={['Nome', 'Chave', 'Criada em', 'Último uso', '']}>
+            {ativas.map((k) => (
+              <Tr key={k.id}>
+                <Td>{k.name}</Td>
+                <Td>
+                  <code className="text-[11px] text-mut">{k.keyPrefix}…</code>
+                </Td>
+                <Td>{new Date(k.createdAt).toLocaleDateString('pt-BR')}</Td>
+                <Td>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString('pt-BR') : 'Nunca usada'}</Td>
+                <Td right>
+                  <button onClick={() => revogar(k.id)} className="rounded-md p-1.5 text-mut hover:bg-neg/10 hover:text-neg">
+                    <Trash2 size={13} />
+                  </button>
+                </Td>
+              </Tr>
+            ))}
+          </Table>
+        )}
+      </Card>
+
+      <Card hover={false}>
+        <SectionTitle>Como usar</SectionTitle>
+        <p className="mb-2 text-xs leading-relaxed text-mut">
+          Envie a chave no cabeçalho <code className="text-[11px]">Authorization</code> em vez de fazer login. Os
+          mesmos endpoints que o dashboard usa funcionam para o robô — ex.: lançar uma despesa:
+        </p>
+        <pre className="overflow-x-auto rounded-lg border border-line bg-panel2/60 p-3 text-[11px] leading-relaxed text-mut">
+{`curl -X POST https://SEU-DOMINIO/api/despesas \\
+  -H "Authorization: Bearer dk_live_..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"category":"Fornecedores","kind":"CUSTO","amount":1500.00,"date":"2026-07-15"}'`}
+        </pre>
+      </Card>
+
+      <Modal title="Nova chave de API" open={open} onClose={() => setOpen(false)}>
+        <div className="space-y-3">
+          <Field label="Nome (identifica a chave na lista)">
+            <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Robô NF-e escritório" autoFocus />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={criar} disabled={!name.trim() || saving}>
+              {saving ? 'Gerando…' : 'Gerar chave'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal title="Chave criada" open={novaChave !== null} onClose={() => setNovaChave(null)}>
+        <div className="space-y-3">
+          <div className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
+            Copie agora — por segurança, essa chave completa <strong>não aparece de novo</strong>. Se perder, revogue
+            e gere outra.
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 overflow-x-auto rounded-lg border border-line bg-panel2/60 p-2.5 text-[11px]">
+              {novaChave}
+            </code>
+            <Button variant="ghost" onClick={copiar}>
+              {copiado ? 'Copiado ✓' : 'Copiar'}
+            </Button>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setNovaChave(null)}>Fechar</Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
   );
 }
 

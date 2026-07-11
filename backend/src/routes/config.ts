@@ -10,6 +10,7 @@ import {
   THRESHOLD_DIRECTIONS,
 } from '../lib/constants.js';
 import { getStatus as calendarStatus } from '../services/calendar.js';
+import { generateApiKey } from '../services/apiKey.js';
 
 export const configRouter = Router();
 
@@ -234,6 +235,49 @@ configRouter.delete(
   ah(async (req, res) => {
     const result = await prisma.seller.deleteMany({ where: { id: req.params.id, companyId: req.companyId! } });
     if (result.count === 0) throw new HttpError(404, 'Vendedor não encontrado');
+    res.status(204).end();
+  })
+);
+
+/* ---------------- Chaves de API (integração externa) ----------------
+ * A chave em texto puro só é devolvida na criação — depois disso só o
+ * prefixo fica visível. Uma chave revogada nunca mais autentica (ver
+ * services/apiKey.ts / lib/auth-middleware.ts).
+ */
+
+configRouter.get(
+  '/api-keys',
+  ah(async (req, res) => {
+    const rows = await prisma.apiKey.findMany({
+      where: { companyId: req.companyId! },
+      select: { id: true, name: true, keyPrefix: true, lastUsedAt: true, createdAt: true, revokedAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(rows);
+  })
+);
+
+configRouter.post(
+  '/api-keys',
+  ah(async (req, res) => {
+    const name = requireString(req.body.name, 'name');
+    const { rawKey, keyHash, keyPrefix } = generateApiKey();
+    const created = await prisma.apiKey.create({
+      data: { companyId: req.companyId!, name, keyHash, keyPrefix },
+    });
+    // Única vez que a chave completa aparece — o front precisa exibir e nunca mais buscar de novo.
+    res.status(201).json({ id: created.id, name: created.name, keyPrefix, createdAt: created.createdAt, rawKey });
+  })
+);
+
+configRouter.delete(
+  '/api-keys/:id',
+  ah(async (req, res) => {
+    const result = await prisma.apiKey.updateMany({
+      where: { id: req.params.id, companyId: req.companyId!, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (result.count === 0) throw new HttpError(404, 'Chave não encontrada ou já revogada');
     res.status(204).end();
   })
 );

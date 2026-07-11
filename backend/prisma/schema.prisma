@@ -47,6 +47,7 @@ model Company {
   importedDocuments   ImportedDocument[]
   balanceSheets       BalanceSheet[]
   cashFlowStatements  CashFlowStatement[]
+  apiKeys             ApiKey[]
 
   @@map("companies")
 }
@@ -320,4 +321,29 @@ model CashFlowStatement {
 
   @@unique([companyId, period])
   @@map("cash_flow_statements")
+}
+
+// ============================================================
+// Chaves de API — autenticação máquina-a-máquina (ex.: robô local do
+// escritório que lê NF-e/planilhas e envia via POST para /api/receitas,
+// /api/despesas, /api/vendas etc.), alternativa ao cookie de sessão que só
+// existe num navegador logado. A chave em texto puro só existe no momento
+// da criação (devolvida uma única vez pela API) — só o hash SHA-256 fica
+// salvo. Uma chave tem o MESMO acesso de um usuário logado da empresa
+// (isolamento por companyId já vale igual — ver lib/auth-middleware.ts).
+// ============================================================
+model ApiKey {
+  id         String    @id @default(cuid())
+  companyId  String    @map("company_id")
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String    // rótulo livre, ex: "Robô NF-e escritório"
+  keyHash    String    @unique @map("key_hash")
+  // Prefixo (ex: "dk_live_ab12") só pra exibir/identificar na UI sem guardar a chave inteira.
+  keyPrefix  String    @map("key_prefix")
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  @@index([companyId])
+  @@map("api_keys")
 }
