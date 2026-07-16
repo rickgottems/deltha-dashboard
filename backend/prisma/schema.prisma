@@ -15,9 +15,19 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// DATABASE_URL: pooler em modo transação (porta 6543, ?pgbouncer=true) — usado
+// em toda query normal da aplicação, compatível com múltiplas conexões
+// simultâneas de containers serverless/efêmeros.
+// DIRECT_URL: pooler em modo sessão (porta 5432) — só usado pelo Prisma para
+// `db push`/`migrate` (DDL precisa de uma conexão que suporte advisory locks,
+// que o modo transação do PgBouncer não suporta).
+// Ambas apontam para o Supabase (migrado do Postgres do Railway em 2026-07) —
+// a conexão DIRETA (db.<projeto>.supabase.co, sem pooler) NÃO funciona a
+// partir do Railway: exige IPv6, que o Railway não oferece em saída.
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Company {
