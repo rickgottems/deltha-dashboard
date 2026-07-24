@@ -3,6 +3,7 @@ import { prisma } from '../db.js';
 import { ah } from '../lib/http.js';
 import { currentYm, isValidYm, lastMonths, prevPeriod } from '../lib/period.js';
 import {
+  breakEven,
   clientesAtivosNoMes,
   contasAReceberEmAberto,
   contributionMarginAvg,
@@ -65,6 +66,7 @@ financeiroRouter.get(
       contasReceberAnterior,
       clientesAtivosAtual,
       clientesAtivosAnterior,
+      pontoEquilibrio,
     ] = await Promise.all([
       periodFinance(fromYm, toYm, opts),
       periodFinance(prev.fromYm, prev.toYm, opts),
@@ -84,6 +86,7 @@ financeiroRouter.get(
       contasAReceberEmAberto(prev.toYm, companyId),
       clientesAtivosNoMes(toYm, companyId),
       clientesAtivosNoMes(prev.toYm, companyId),
+      breakEven(fromYm, toYm, companyId),
     ]);
 
     // Só entra no histórico de 3 períodos (regra F4) se TODOS os 3 meses tiverem DFC lançado.
@@ -141,6 +144,7 @@ financeiroRouter.get(
       alerts,
       dreAlerts,
       saudeFinanceira,
+      pontoEquilibrio,
       hasData: series12.some((f) => f.receitaBruta > 0 || f.despesasTotais > 0),
     });
   })

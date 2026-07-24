@@ -12,11 +12,12 @@
 // reconhecida, não a soma de Sale.amount, então isso não afeta o DRE.
 // ============================================================
 
-import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readdir, readFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
 import { isPagamentoQuitadoNaEmissao, parseNfeFile, type ParsedNfe } from './nfeParser.js';
+import { storageConfigured, uploadImportedDocument } from './storage.js';
 
 // Tipo correto do client transacional passado por prisma.$transaction(async (tx) => ...).
 // Usar isto (em vez de `typeof prisma` + cast) garante que os helpers só
@@ -166,7 +167,14 @@ export async function importNfeFromDirectory(dirPath: string, companyId: string)
         continue;
       }
 
-      await importOneNfe(nfe, filePath, companyId);
+      // Arquiva o XML no Supabase Storage (path durável, sobrevive a redeploy
+      // do Railway) quando configurado; sem isso, mantém o caminho local como
+      // antes — a pasta NFE_IMPORT_DIR já é a única fonte de verdade nesse caso.
+      const caminhoRegistrado = storageConfigured
+        ? await uploadImportedDocument(companyId, 'nfe', basename(filePath), await readFile(filePath), 'application/xml')
+        : filePath;
+
+      await importOneNfe(nfe, caminhoRegistrado, companyId);
       results.push({ arquivo: filePath, status: 'IMPORTADO' });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

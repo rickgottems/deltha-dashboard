@@ -5,7 +5,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpError } from './lib/http.js';
-import { requireAuth } from './lib/auth-middleware.js';
+import { requireAuth, requireBlockLeitura } from './lib/auth-middleware.js';
 import { authRouter } from './routes/auth.js';
 import { executivoRouter } from './routes/executivo.js';
 
@@ -36,6 +36,7 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOS
 // Toda rota abaixo dele exige sessão válida — ver lib/auth-middleware.ts.
 app.use('/api/auth', authRouter);
 app.use('/api', requireAuth);
+app.use('/api', requireBlockLeitura);
 
 app.use('/api/executivo', executivoRouter);
 app.use('/api/financeiro', financeiroRouter);

@@ -8,6 +8,7 @@ import { KpiCard } from '../components/KpiCard';
 import { FinanceFilterBar, useFinanceFilter } from '../components/pickers';
 import { CashflowBars, ChartLegend, TimeSeriesLine, type LineSeriesDef } from '../components/charts';
 import { AlertsPanel, type AlertItem } from '../components/AlertsPanel';
+import { BreakEvenChart, type BreakEvenData } from '../components/BreakEvenChart';
 
 interface FinanceiroData {
   month: string;
@@ -25,6 +26,7 @@ interface FinanceiroData {
   lucroSerie: { label: string; lucro: number }[];
   fluxoCaixa: { label: string; valor: number }[];
   alerts: AlertItem[];
+  pontoEquilibrio: BreakEvenData;
   saudeFinanceira: {
     score: number;
     metrics: {
@@ -182,6 +184,8 @@ export function Financeiro() {
             </Card>
             <AlertsPanel alerts={data.alerts} />
           </div>
+
+          <BreakEvenChart data={data.pontoEquilibrio} />
 
           {/* ---------- Saúde Financeira (Balanço Patrimonial + DFC) ---------- */}
           <Card hover={false}>

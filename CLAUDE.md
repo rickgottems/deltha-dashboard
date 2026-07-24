@@ -8,18 +8,23 @@ distingue **DELTHA_CLIENT** (cliente do escritório, dados podem chegar via NF-e
 
 ## Stack e como rodar
 
-- Backend: Node 24 + Express 4 + TypeScript (`tsx`) + Prisma 6 + **PostgreSQL** (migrado de
-  SQLite em 2026-07 — ver "Decisões" abaixo). `cd backend && npm run dev` (porta 3001).
+- Backend: Node 24 + Express 4 + TypeScript (`tsx`) + Prisma 6 + **PostgreSQL via Supabase**
+  (migrado de SQLite em 2026-07, depois de Postgres do Railway para Supabase em 2026-07 — ver
+  "Decisões" abaixo). `cd backend && npm run dev` (porta 3001).
 - Frontend: React 18 + Vite + Tailwind v4 + Recharts + Framer Motion. `cd frontend && npm run dev`
   (porta 5173, proxy de `/api` para o backend).
 - **Deploy**: Railway, via `Dockerfile` na raiz (build multi-stage: builda o frontend, copia o
   `dist` pra dentro da imagem do backend — Express serve os estáticos, é 1 serviço só, não dois).
-  `CMD` roda `prisma db push` (sem `--accept-data-loss` de propósito — se uma mudança de schema
-  fosse destrutiva, o deploy falha em vez de apagar dado silenciosamente) e depois `npm start`.
-  Variáveis obrigatórias no Railway: `DATABASE_URL` (referência ao serviço Postgres) e
-  `JWT_SECRET`.
-- Local dev sem Postgres instalado: não tem fallback SQLite mais — usar a `DATABASE_URL` do
-  Postgres do Railway (ou um Postgres local) no `.env`.
+  `CMD` roda `npx prisma migrate deploy && npm start` — migrations versionadas
+  (`backend/prisma/migrations/`), não mais `db push`. Toda mudança de schema precisa de uma
+  migration nova (`npx prisma migrate diff --from-schema-datamodel <schema antigo> --to-schema-datamodel prisma/schema.prisma --script`
+  gera o SQL sem precisar de conexão com o banco — usado nesta sessão porque `migrate dev`
+  direto contra produção arrisca detectar "drift" e oferecer resetar o banco). Variáveis
+  obrigatórias no Railway: `DATABASE_URL`, `DIRECT_URL` (pooler Supabase, ver schema.prisma),
+  `JWT_SECRET`. Opcional: `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_STORAGE_BUCKET`
+  (arquivamento de arquivo-fonte de importações, ver seção Storage abaixo).
+- Local dev: preencher `DATABASE_URL`/`DIRECT_URL` do Supabase (ou um Postgres local) no `.env`
+  do backend — sem fallback SQLite.
 - Scripts do backend: `db:demo`/`db:clean` agora operam só numa **"Empresa Demo"** dedicada
   (login `demo@deltha.local`), nunca em outras empresas do banco multiempresa. `db:seed` é
   no-op (os limiares de alerta padrão de cada empresa nova são criados no cadastro, ver
@@ -39,6 +44,12 @@ distingue **DELTHA_CLIENT** (cliente do escritório, dados podem chegar via NF-e
 - CNPJ é obrigatório e único no cadastro; autopreenchimento de razão social/endereço via
   `GET /api/auth/cnpj-lookup/:cnpj` (BrasilAPI, dado público da Receita — **não** dá acesso a
   nada fiscal/financeiro, só cadastral).
+- **RBAC (papéis)**: `User.role` (`ADMIN | FINANCEIRO | LEITURA`, default `ADMIN`). Todo usuário
+  novo nasce `ADMIN` — ainda não existe UI de convite/gestão de usuário para atribuir outro papel
+  (limitação conhecida, ver Roadmap). `requireBlockLeitura` (`lib/auth-middleware.ts`), aplicado
+  globalmente depois de `requireAuth`, devolve 403 em POST/PUT/PATCH/DELETE para role `LEITURA`.
+  Chave de API (M2M) nunca tem `role` (não há usuário humano por trás) e por isso nunca é
+  bloqueada por essa checagem — só JWT de sessão carrega `role`.
 
 ## Onde estão as regras de negócio (motor financeiro)
 
@@ -101,11 +112,26 @@ Dedup das duas primeiras: tabela `imported_documents` (chave de acesso NF-e ou h
 planilha), agora com `companyId` também. Campo `source` (`MANUAL|NFE|DOMINIO`) em
 `Receivable`/`Sale`/`Expense` alimenta o badge de origem na UI.
 
+**UI condicional por `accountType`**: a aba Configurações → Integrações só mostra os cards de
+importação de NF-e/Domínio para conta `DELTHA_CLIENT` — conta `EXTERNO` vê uma mensagem apontando
+pro lançamento manual ou pra chave de API (`IntegracoesTab` em `pages/Configuracoes.tsx`).
+
+**Arquivamento em Supabase Storage** (`services/storage.ts`, opcional — ver `SUPABASE_URL`/
+`SUPABASE_SERVICE_ROLE_KEY` no `.env`): quando configurado, o arquivo-fonte de cada importação
+(XML de NF-e, planilha Domínio) é enviado para `${bucket}/${companyId}/{nfe|dominio}/{arquivo}`
+e o caminho salvo vira `ImportedDocument.filePath` — antes disso o disco do Railway é efêmero
+(some a cada redeploy) e a planilha Domínio nem chegava a ser salva (só o nome). Se o upload
+falhar, o documento NÃO é registrado como importado (fica `status=ERRO`, nunca `IMPORTADO`
+apontando pra um arquivo que não existe). Sem as variáveis configuradas, comportamento antigo
+(sem arquivamento) é mantido — integração opcional, mesma tolerância do Google Calendar.
+
 ## Design system / identidade visual
 
-- Tokens de cor centralizados em **dois lugares que precisam ficar em sincronia byte-a-byte**:
-  `frontend/src/index.css` (`@theme`, Tailwind) e `frontend/src/lib/palette.ts` (espelho em JS,
-  Recharts não lê `var(--color-*)`).
+- **Fonte única da paleta**: `frontend/src/index.css` (`@theme`, Tailwind). `frontend/src/lib/palette.ts`
+  não hardcoda mais os hex — lê os valores computados via `getComputedStyle(document.documentElement)`
+  uma vez no load do módulo (Recharts não lê `var(--color-*)` diretamente, por isso ainda precisa
+  do espelho em JS, mas agora é lido do CSS em vez de duplicado à mão). Hex hardcoded em
+  `palette.ts` existe só como `FALLBACK` (ambiente sem DOM, ex. teste sem jsdom).
 - Paleta da marca Radar Deltha: navy profundo + vermelho carmim (`--color-accent`/`C.accent`)
   como destaque. Cores semânticas de alerta (verde/amarelo/vermelho) são independentes da marca
   — não confundir `C.accent` com `C.neg`.
@@ -119,13 +145,21 @@ planilha), agora com `companyId` também. Campo `source` (`MANUAL|NFE|DOMINIO`) 
 
 - **PostgreSQL, não SQLite**: migrado em 2026-07 porque múltiplas empresas escrevendo ao mesmo
   tempo (SaaS real) tornou o SQLite arriscado (trava de escrita concorrente, já observado em
-  teste). Decisão anterior de "SQLite por portabilidade" está **superada**.
-  A migração para Postgres foi feita com o banco vazio (sem dado de cliente real), então não
-  existe migration history antiga — histórico de migrations começa do zero quando alguém rodar
-  `prisma migrate dev` pela primeira vez.
+  teste). Decisão anterior de "SQLite por portabilidade" está **superada**. Depois migrado do
+  Postgres do Railway para **Supabase** (mesmo motivo de "banco agora é produção" — ver seção
+  Deploy). Migrations versionadas existem a partir de 2026-07 (baseline gerada via
+  `migrate diff --from-empty` + `migrate resolve --applied`, sem tocar o banco — histórico
+  anterior a isso não existe porque era só `db push`).
+- **`connection_limit=1`/`pool_timeout` na `DATABASE_URL` — decisão explícita de NÃO adicionar**:
+  esses parâmetros existem pra runtime serverless (função que sobe/derruba conexão a cada
+  invocação); o Radar Deltha roda num container Railway persistente com o pool padrão do Prisma
+  — adicionar isso estrangularia concorrência sem necessidade real.
+- **Trigger.dev (fila assíncrona) — decisão explícita de NÃO adicionar**: infraestrutura
+  prematura pro volume atual de importação de NF-e; reconsiderar só se o parse de XML em massa
+  passar a travar o event loop de verdade (não observado ainda).
 - **Multiusuário/login existe** (superou a decisão antiga de "sem login nesta versão") — 1
-  usuário por empresa no cadastro atual; múltiplos usuários por empresa com papéis é evolução
-  futura ainda não implementada.
+  usuário por empresa no cadastro atual; múltiplos usuários por empresa é evolução futura ainda
+  não implementada, mas o campo `role` (RBAC) já existe e é reforçado no backend.
 - **Motor financeiro**: NÃO criar um motor paralelo/duplicado quando surgir uma nova referência
   de "regras financeiras" (já aconteceu 3-4 vezes nesta sessão, sempre gerado por outra IA) —
   comparar contra `dreAlerts.ts`/`healthScore.ts`/`finance.ts` existentes e só portar o que é
@@ -136,11 +170,18 @@ planilha), agora com `companyId` também. Campo `source` (`MANUAL|NFE|DOMINIO`) 
 
 ## Roadmap pendente (não implementado ainda)
 
-- `accountType` (DELTHA_CLIENT × EXTERNO) existe no schema e no cadastro, mas ainda não muda
-  nada de comportamento/UI além do próprio cadastro — página "Lançamentos" consolidada pra
-  contas EXTERNO, e NF-e automática de verdade só pra DELTHA_CLIENT, são trabalho futuro.
+- Página "Lançamentos" consolidada pra contas EXTERNO ainda não existe (hoje `accountType`
+  só esconde os cards de importação automática em Integrações, ver acima) — usuário Externo
+  ainda navega Receitas/Despesas/Vendas separadamente pra lançar manualmente.
 - `NFE_IMPORT_DIR` por empresa (hoje é 1 pasta global no `.env`, não escala pra multiempresa de
   verdade — ver seção "Importação automática" acima).
+- **RBAC sem UI de gestão**: `role` existe e é reforçado no backend, mas não há tela pra
+  convidar um segundo usuário ou trocar o papel de alguém — todo cadastro novo nasce `ADMIN`
+  sozinho na empresa. Query/rota de convite de usuário é trabalho futuro.
+- **Ponto de Equilíbrio depende de classificação manual**: `Expense.costBehavior` (FIXO/VARIAVEL)
+  é opcional e começa `null` em toda despesa — o card só calcula quando a empresa classifica ao
+  menos uma despesa como Fixa E tem produto ativo com margem de contribuição válida. Não há
+  sugestão automática de classificação (ex.: por categoria) ainda.
 - Visualizações/insights adicionais do backlog original (Fases 4-7 do pedido inicial) ainda não
   cobertas: mais gráficos por aba, dashboard executivo mais completo, insights executivos
   cruzando os alertas de Balanço/DFC em texto corrido.

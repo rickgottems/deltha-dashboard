@@ -20,6 +20,7 @@ interface DespesasData {
     descricao: string | null;
     categoria: string;
     classificacao: string;
+    comportamentoCusto: string | null;
     valor: number;
     data: string;
     source: string;
@@ -36,9 +37,17 @@ const KIND_LABEL: Record<string, string> = {
   OUTRA: 'Outra',
 };
 
+// Classificação independente de `kind`, só usada pelo Ponto de Equilíbrio
+// (aba Financeiro) — opcional de propósito (ver backend src/lib/constants.ts).
+const COST_BEHAVIOR_LABEL: Record<string, string> = {
+  FIXO: 'Fixo',
+  VARIAVEL: 'Variável',
+};
+
 const emptyForm = {
   category: '',
   kind: 'OPERACIONAL',
+  costBehavior: '',
   description: '',
   amount: '',
   date: todayISO(),
@@ -61,6 +70,7 @@ export function Despesas() {
       await api.post('/api/despesas', {
         category: form.category || 'Geral',
         kind: form.kind,
+        costBehavior: form.costBehavior || undefined,
         description: form.description || undefined,
         amount: Number(form.amount),
         date: form.date,
@@ -149,12 +159,19 @@ export function Despesas() {
             {data.itens.length === 0 ? (
               <EmptyState title="Nenhuma despesa no período" hint="Use o botão “Nova despesa” para lançar saídas." />
             ) : (
-              <Table columns={['Data', 'Categoria', 'Classificação DRE', 'Descrição', 'Origem', 'Valor', '']}>
+              <Table columns={['Data', 'Categoria', 'Classificação DRE', 'Custo', 'Descrição', 'Origem', 'Valor', '']}>
                 {data.itens.map((d) => (
                   <Tr key={d.id}>
                     <Td>{fmtDateISO(d.data)}</Td>
                     <Td>{d.categoria}</Td>
                     <Td><Badge text={KIND_LABEL[d.classificacao] ?? d.classificacao} color={C.silver} /></Td>
+                    <Td>
+                      {d.comportamentoCusto ? (
+                        <Badge text={COST_BEHAVIOR_LABEL[d.comportamentoCusto] ?? d.comportamentoCusto} color={d.comportamentoCusto === 'FIXO' ? C.warn : C.blue} />
+                      ) : (
+                        <span className="text-mut">—</span>
+                      )}
+                    </Td>
                     <Td className="max-w-[240px] truncate text-mut">{d.descricao ?? '—'}</Td>
                     <Td><SourceBadge source={d.source} /></Td>
                     <Td right>{fmtBRL(d.valor)}</Td>
@@ -191,6 +208,14 @@ export function Despesas() {
           <Field label="Classificação DRE (define waterfall e EBITDA)">
             <Select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
               {Object.entries(KIND_LABEL).map(([k, label]) => (
+                <option key={k} value={k}>{label}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Comportamento de custo (opcional — alimenta o Ponto de Equilíbrio no Financeiro)">
+            <Select value={form.costBehavior} onChange={(e) => setForm({ ...form, costBehavior: e.target.value })}>
+              <option value="">Não classificado</option>
+              {Object.entries(COST_BEHAVIOR_LABEL).map(([k, label]) => (
                 <option key={k} value={k}>{label}</option>
               ))}
             </Select>

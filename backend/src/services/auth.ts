@@ -20,6 +20,7 @@ export const AUTH_COOKIE_NAME = 'deltha_session';
 export interface TokenPayload {
   companyId: string;
   userId: string;
+  role: 'ADMIN' | 'FINANCEIRO' | 'LEITURA';
 }
 
 export async function hashPassword(password: string): Promise<string> {

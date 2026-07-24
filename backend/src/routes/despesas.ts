@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { ah, HttpError, requireDate, requireNumber, requireString } from '../lib/http.js';
 import { rangeFromQuery, ymLabel, ymOf } from '../lib/period.js';
-import { EXPENSE_KINDS } from '../lib/constants.js';
+import { COST_BEHAVIORS, EXPENSE_KINDS } from '../lib/constants.js';
 
 export const despesasRouter = Router();
 
@@ -47,6 +47,7 @@ despesasRouter.get(
         descricao: x.description,
         categoria: x.category,
         classificacao: x.kind,
+        comportamentoCusto: x.costBehavior,
         valor: x.amount,
         data: x.date.toISOString().slice(0, 10),
         source: x.source,
@@ -62,11 +63,15 @@ despesasRouter.post(
     const kind = String(req.body.kind ?? 'OPERACIONAL');
     if (!EXPENSE_KINDS.includes(kind as any))
       throw new HttpError(400, `Classificação inválida. Use: ${EXPENSE_KINDS.join(', ')}`);
+    const costBehavior = req.body.costBehavior ? String(req.body.costBehavior) : null;
+    if (costBehavior && !COST_BEHAVIORS.includes(costBehavior as any))
+      throw new HttpError(400, `Comportamento de custo inválido. Use: ${COST_BEHAVIORS.join(', ')}`);
     const created = await prisma.expense.create({
       data: {
         companyId,
         category: requireString(req.body.category, 'category'),
         kind,
+        costBehavior,
         description: req.body.description ? String(req.body.description) : null,
         amount: requireNumber(req.body.amount, 'amount'),
         date: requireDate(req.body.date, 'date'),
@@ -83,11 +88,16 @@ despesasRouter.put(
     const kind = req.body.kind ? String(req.body.kind) : undefined;
     if (kind && !EXPENSE_KINDS.includes(kind as any))
       throw new HttpError(400, `Classificação inválida. Use: ${EXPENSE_KINDS.join(', ')}`);
+    const costBehaviorProvided = req.body.costBehavior !== undefined;
+    const costBehavior = req.body.costBehavior ? String(req.body.costBehavior) : null;
+    if (costBehavior && !COST_BEHAVIORS.includes(costBehavior as any))
+      throw new HttpError(400, `Comportamento de custo inválido. Use: ${COST_BEHAVIORS.join(', ')}`);
     const result = await prisma.expense.updateMany({
       where: { id: req.params.id, companyId },
       data: {
         ...(req.body.category ? { category: String(req.body.category) } : {}),
         ...(kind ? { kind } : {}),
+        ...(costBehaviorProvided ? { costBehavior } : {}),
         ...(req.body.description !== undefined ? { description: req.body.description || null } : {}),
         ...(req.body.amount !== undefined ? { amount: requireNumber(req.body.amount, 'amount') } : {}),
         ...(req.body.date ? { date: requireDate(req.body.date, 'date') } : {}),

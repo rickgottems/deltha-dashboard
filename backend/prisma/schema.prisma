@@ -62,6 +62,16 @@ model Company {
   @@map("companies")
 }
 
+// ADMIN: acesso total. FINANCEIRO: acesso total às operações do dia a dia
+// (v1 não distingue de ADMIN em nenhuma rota ainda — reservado para quando
+// existir gestão de permissão fina). LEITURA: só GET, bloqueado de
+// criar/editar/excluir em qualquer rota (ver lib/auth-middleware.ts).
+enum Role {
+  ADMIN
+  FINANCEIRO
+  LEITURA
+}
+
 model User {
   id           String   @id @default(cuid())
   companyId    String   @map("company_id")
@@ -69,6 +79,7 @@ model User {
   email        String   @unique
   passwordHash String   @map("password_hash")
   name         String
+  role         Role     @default(ADMIN)
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@index([companyId])
@@ -126,6 +137,11 @@ model Expense {
   // Classificação DRE: DEDUCAO | CUSTO | OPERACIONAL | DEPRECIACAO | FINANCEIRA | OUTRA
   // Usada no waterfall (Receita Bruta → ... → Lucro Operacional) e no EBITDA.
   kind        String   @default("OPERACIONAL")
+  // FIXO | VARIAVEL | null — classificação independente de `kind`, usada só
+  // pelo Ponto de Equilíbrio (services/finance.ts → breakEven). null = ainda
+  // não classificada (despesa antiga ou usuário que pulou o campo) — fica de
+  // fora do cálculo até ser classificada, nunca distorce o resultado.
+  costBehavior String?  @map("cost_behavior")
   description String?
   amount      Float
   date        DateTime

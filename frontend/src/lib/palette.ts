@@ -1,22 +1,42 @@
 // Cores usadas dentro dos gráficos (Recharts precisa de valores concretos,
-// não consegue ler var(--color-*) do Tailwind). Manter em sincronia byte-a-byte
-// com os tokens @theme de src/index.css — paleta oficial da marca Radar Deltha
-// (navy + carmim, extraída de Logos/Logo Deltha 1.pdf).
+// não consegue ler var(--color-*) do Tailwind em runtime). Em vez de manter
+// um segundo espelho hardcoded em sincronia manual com os tokens @theme de
+// src/index.css, lemos os valores computados do próprio CSS — index.css
+// continua a ÚNICA fonte da verdade da paleta; aqui só espelhamos o mesmo
+// dado para o mundo não-DOM do Recharts. Os hex abaixo são só fallback (uso
+// fora do navegador, ex. testes sem jsdom com CSS carregado).
 
-export const C = {
+const FALLBACK = {
   bg: '#070B1C',
   panel: '#0D1430',
   panel2: '#141D3C',
   line: '#243054',
   ink: '#E8EBF5',
   mut: '#8B93AC',
-  accent: '#D81F45', // carmim da marca — série principal, usado com moderação
-  pos: '#22C55E', // verde — positivo / dentro da meta (semântico)
-  warn: '#F5A524', // amarelo — atenção (semântico)
-  neg: '#FF6B6B', // vermelho — negativo / crítico (semântico, clareado p/ não colidir com o carmim da marca)
-  blue: '#5B8DEF', // série de dados neutra
-  silver: '#C3CAD9', // série de dados neutra clara
+  accent: '#D81F45',
+  pos: '#22C55E',
+  warn: '#F5A524',
+  neg: '#FF6B6B',
+  blue: '#5B8DEF',
+  silver: '#C3CAD9',
 } as const;
+
+type PaletteKey = keyof typeof FALLBACK;
+
+function readThemeColors(): Record<PaletteKey, string> {
+  if (typeof document === 'undefined') return { ...FALLBACK };
+  const styles = getComputedStyle(document.documentElement);
+  const result = {} as Record<PaletteKey, string>;
+  for (const key of Object.keys(FALLBACK) as PaletteKey[]) {
+    const value = styles.getPropertyValue(`--color-${key}`).trim();
+    result[key] = value || FALLBACK[key];
+  }
+  return result;
+}
+
+// index.css/@theme não muda em runtime (sem alternância de tema hoje) —
+// lido uma vez no load do módulo, não a cada render.
+export const C = readThemeColors();
 
 export type AlertLevel = 'critico' | 'atencao' | 'confortavel';
 

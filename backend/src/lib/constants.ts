@@ -25,6 +25,11 @@ export const EXPENSE_KINDS = [
   'OUTRA',
 ] as const;
 
+// Classificação independente de `kind`, usada só pelo Ponto de Equilíbrio
+// (services/finance.ts → breakEven). Campo opcional: despesa sem essa
+// classificação simplesmente fica fora do cálculo.
+export const COST_BEHAVIORS = ['FIXO', 'VARIAVEL'] as const;
+
 export const TASK_STATUS = ['EM_ANDAMENTO', 'CONCLUIDA', 'CANCELADA'] as const;
 
 // Origem de um lançamento (Receivable/Sale/Expense):

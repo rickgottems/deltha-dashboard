@@ -18,6 +18,7 @@ import { prisma } from '../db.js';
 import { parseCsv } from '../lib/csv.js';
 import { EXPENSE_KINDS } from '../lib/constants.js';
 import { HttpError } from '../lib/http.js';
+import { storageConfigured, uploadImportedDocument } from './storage.js';
 
 export interface SpreadsheetPreview {
   headers: string[];
@@ -159,6 +160,19 @@ export async function commitExpenseImport(
   const [headers, ...dataRows] = rows;
   if (!headers) return { totalLinhas: 0, importadas: 0, duplicadasIgnoradas: 0, linhasDuplicadas: [], erros: [] };
 
+  // Arquiva a planilha original no Supabase Storage ANTES de gravar qualquer
+  // linha — se o upload falhar, o commit inteiro falha (nenhuma linha é
+  // gravada), em vez de gravar despesas com um `filePath` que não leva a
+  // lugar nenhum. Sem Storage configurado, mantém o comportamento anterior
+  // (só o nome do arquivo, sem cópia real — mesma tolerância de outras
+  // integrações opcionais do sistema).
+  const contentType = isXlsx(filename)
+    ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    : 'text/csv';
+  const arquivoRegistrado = storageConfigured
+    ? await uploadImportedDocument(companyId, 'dominio', filename, buffer, contentType)
+    : filename;
+
   const idx = (col: string | null | undefined) => (col ? headers.indexOf(col) : -1);
   const dateIdx = idx(mapping.dateColumn);
   const amountIdx = idx(mapping.amountColumn);
@@ -216,7 +230,7 @@ export async function commitExpenseImport(
           companyId,
           source: 'DOMINIO_EXPENSE',
           externalId: hash,
-          filePath: filename,
+          filePath: arquivoRegistrado,
           status: 'IMPORTADO',
           createdIds: JSON.stringify({ expenseId: expense.id }),
         },

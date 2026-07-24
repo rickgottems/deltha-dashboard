@@ -4,3 +4,5 @@ dist/
 *.db-journal
 .env
 !backend/.env.example
+knowledge-vault/.obsidian/workspace.json
+knowledge-vault/.obsidian/workspace-mobile.json

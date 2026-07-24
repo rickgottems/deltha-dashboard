@@ -12,6 +12,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:demo": "tsx prisma/seed-demo.ts",
     "db:clean": "tsx prisma/clean-data.ts",
+    "db:test:grancarnes": "tsx prisma/seed-test-grancarnes.ts",
+    "db:test:grancarnes:clean": "tsx prisma/clean-test-grancarnes.ts",
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio"
   },
@@ -20,6 +22,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.3.0",
+    "@supabase/supabase-js": "^2.110.7",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

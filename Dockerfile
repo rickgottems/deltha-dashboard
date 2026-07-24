@@ -25,10 +25,11 @@ ENV NODE_ENV=production
 ENV PORT=3001
 
 WORKDIR /app/backend
-# `db push` (não `migrate deploy`) porque ainda não há histórico de migrations
-# versionado para Postgres (banco multiempresa novo, sem dado real de cliente
-# a proteger ainda) — sincroniza o schema direto. SEM --accept-data-loss de
-# propósito: se um deploy futuro tentar uma mudança que perderia dados reais,
-# o comando FALHA em vez de apagar silenciosamente — trocar para migrations
-# versionadas (prisma migrate) antes de operar com dados reais em produção.
-CMD ["sh", "-c", "npx prisma db push && npm start"]
+# `migrate deploy` aplica só migrations versionadas em `prisma/migrations/`
+# (histórico ACID, nunca reseta/recria tabela) — substituiu `db push` agora
+# que o banco (Supabase) é produção de verdade. Pré-requisito: a migration
+# baseline (`0_init_supabase_production` ou timestamp equivalente) precisa
+# estar marcada como aplicada no banco (`prisma migrate resolve --applied`)
+# ANTES do primeiro deploy com este CMD, senão ele tenta recriar tabelas que
+# já existem e falha.
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]

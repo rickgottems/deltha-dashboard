@@ -87,9 +87,9 @@ authRouter.post(
       return { company, user };
     });
 
-    const token = signToken({ companyId: company.id, userId: user.id });
+    const token = signToken({ companyId: company.id, userId: user.id, role: user.role });
     res.cookie(AUTH_COOKIE_NAME, token, COOKIE_OPTIONS);
-    res.status(201).json({ user: { id: user.id, name: user.name, email: user.email }, company });
+    res.status(201).json({ user: { id: user.id, name: user.name, email: user.email, role: user.role }, company });
   })
 );
 
@@ -120,9 +120,9 @@ authRouter.post(
       throw new HttpError(401, 'Credenciais inválidas');
     }
 
-    const token = signToken({ companyId: user.companyId, userId: user.id });
+    const token = signToken({ companyId: user.companyId, userId: user.id, role: user.role });
     res.cookie(AUTH_COOKIE_NAME, token, COOKIE_OPTIONS);
-    res.json({ user: { id: user.id, name: user.name, email: user.email }, company: user.company });
+    res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role }, company: user.company });
   })
 );
 
@@ -140,6 +140,6 @@ authRouter.get(
       include: { company: true },
     });
     if (!user) throw new HttpError(401, 'Sessão inválida');
-    res.json({ user: { id: user.id, name: user.name, email: user.email }, company: user.company });
+    res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role }, company: user.company });
   })
 );

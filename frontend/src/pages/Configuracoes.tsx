@@ -748,11 +748,29 @@ interface IntegracoesData {
 }
 
 function IntegracoesTab() {
+  const { company } = useAuth();
+  // Importação automática (NF-e / planilha Domínio) é fluxo de cliente do
+  // escritório (dados chegam prontos de fora) — conta EXTERNO lança tudo
+  // manualmente em Receitas/Despesas/Vendas, então nem faz sentido mostrar
+  // esses cards (ver CLAUDE.md, seção "Importação automática de dados").
+  const podeImportar = company?.accountType === 'DELTHA_CLIENT';
   return (
     <div className="space-y-4">
       <GoogleCalendarCard />
-      <NfeImportCard />
-      <DominioImportCard />
+      {podeImportar ? (
+        <>
+          <NfeImportCard />
+          <DominioImportCard />
+        </>
+      ) : (
+        <Card hover={false}>
+          <SectionTitle>Importação automática</SectionTitle>
+          <p className="text-xs text-mut">
+            Disponível para contas Cliente Deltha. Sua conta é Externa — lance receitas, despesas e vendas
+            manualmente nas respectivas abas, ou automatize via chave de API (aba API).
+          </p>
+        </Card>
+      )}
     </div>
   );
 }

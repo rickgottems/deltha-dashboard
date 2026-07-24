@@ -190,6 +190,60 @@ export async function contributionMarginAvg(companyId: string): Promise<{ avg: n
   return { avg: round2((sum / products.length) * 100), count: products.length };
 }
 
+export interface BreakEvenResult {
+  status: 'OK' | 'SEM_DESPESA_FIXA' | 'SEM_MARGEM_CONTRIBUICAO' | 'MARGEM_NAO_POSITIVA';
+  margemContribuicaoPct: number | null;
+  despesasFixas: number;
+  receitaLiquida: number;
+  pontoEquilibrio: number | null;
+  // Quanto falta (positivo) ou quanto passou (negativo) do ponto de equilíbrio.
+  distanciaPontoEquilibrio: number | null;
+}
+
+/**
+ * Ponto de Equilíbrio (financeiro, em R$): Despesas Fixas ÷ Margem de
+ * Contribuição (%). Reaproveita `contributionMarginAvg` (já usado no alerta
+ * `margem_contribuicao`) em vez de inventar um segundo cálculo de margem a
+ * partir de Expense — margem vem do cadastro de Produtos (preço venda ×
+ * custo), despesas fixas vêm de `Expense.costBehavior = 'FIXO'` no período.
+ * Sem despesa fixa classificada OU sem produto com margem válida no
+ * período: `status` sinaliza qual dado falta, sem tentar "adivinhar" um
+ * número (ver BreakEvenChart.tsx no frontend — deve mostrar empty state).
+ */
+export async function breakEven(fromYm: string, toYm: string, companyId: string): Promise<BreakEvenResult> {
+  const range = spanRange(fromYm, toYm);
+  const [{ avg: margemContribuicaoPct }, despesasFixasAgg, periodo] = await Promise.all([
+    contributionMarginAvg(companyId),
+    prisma.expense.aggregate({
+      where: { companyId, costBehavior: 'FIXO', date: { gte: range.start, lt: range.end } },
+      _sum: { amount: true },
+    }),
+    periodFinance(fromYm, toYm, { companyId }),
+  ]);
+  const despesasFixas = round2(despesasFixasAgg._sum.amount ?? 0);
+  const receitaLiquida = periodo.receitaLiquida;
+
+  if (despesasFixas <= 0) {
+    return { status: 'SEM_DESPESA_FIXA', margemContribuicaoPct, despesasFixas, receitaLiquida, pontoEquilibrio: null, distanciaPontoEquilibrio: null };
+  }
+  if (margemContribuicaoPct === null) {
+    return { status: 'SEM_MARGEM_CONTRIBUICAO', margemContribuicaoPct, despesasFixas, receitaLiquida, pontoEquilibrio: null, distanciaPontoEquilibrio: null };
+  }
+  if (margemContribuicaoPct <= 0) {
+    return { status: 'MARGEM_NAO_POSITIVA', margemContribuicaoPct, despesasFixas, receitaLiquida, pontoEquilibrio: null, distanciaPontoEquilibrio: null };
+  }
+
+  const pontoEquilibrio = round2(safeDivide(despesasFixas * 100, margemContribuicaoPct) ?? 0);
+  return {
+    status: 'OK',
+    margemContribuicaoPct,
+    despesasFixas,
+    receitaLiquida,
+    pontoEquilibrio,
+    distanciaPontoEquilibrio: round2(pontoEquilibrio - receitaLiquida),
+  };
+}
+
 export async function newClientsIn(ym: string, companyId: string): Promise<number> {
   const r = monthRange(ym);
   return prisma.client.count({ where: { companyId, createdAt: { gte: r.start, lt: r.end } } });
