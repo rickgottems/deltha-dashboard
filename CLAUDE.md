@@ -185,3 +185,31 @@ apontando pra um arquivo que não existe). Sem as variáveis configuradas, compo
 - Visualizações/insights adicionais do backlog original (Fases 4-7 do pedido inicial) ainda não
   cobertas: mais gráficos por aba, dashboard executivo mais completo, insights executivos
   cruzando os alertas de Balanço/DFC em texto corrido.
+## Base de conhecimento (Obsidian) — knowledge-vault/
+
+Este projeto tem uma base de conhecimento em ./knowledge-vault/, com:
+- 01-decisions/        → decisões arquiteturais e de produto
+- 02-bugs-resolvidos/  → erros já corrigidos e sua causa raiz
+- 03-logica-negocio/   → regras de negócio, thresholds, alert engine
+- 04-logica-dados/     → lógica de análise DRE/DFC/Balanço Patrimonial
+- 05-sessions-log/     → log resumido de cada sessão de trabalho
+
+### Antes de codar, corrigir bug, ou responder pergunta técnica sobre lógica de negócio ou dados:
+1. Busque por palavras-chave relevantes ao tema dentro de 
+   02-bugs-resolvidos/, 03-logica-negocio/ e 04-logica-dados/ 
+   ANTES de escrever código ou assumir um valor/regra.
+2. Leia só os arquivos relevantes retornados pela busca — não leia 
+   o vault inteiro por padrão.
+3. Se não encontrar nada relevante, prossiga normalmente e avise 
+   que não havia contexto prévio sobre o tema.
+
+### Ao final de cada sessão de trabalho, obrigatoriamente, sem pedir permissão:
+1. Se algum bug foi corrigido: crie ou atualize um arquivo em 
+   02-bugs-resolvidos/[nome-do-bug].md com: sintoma, causa raiz, 
+   correção aplicada, arquivo(s) afetado(s).
+2. Se alguma decisão de arquitetura, threshold ou regra de negócio 
+   foi definida ou alterada: atualize o arquivo correspondente em 
+   03-logica-negocio/ ou 04-logica-dados/ (edite o existente sobre 
+   o tema, não crie duplicado).
+3. Sempre: adicione uma entrada em 05-sessions-log/AAAA-MM-DD.md 
+   com resumo de 3 a 5 linhas do que foi feito na sessão.
